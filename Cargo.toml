@@ -1,0 +1,21 @@
+[package]
+name = "vim-plugin-metadata"
+version = "0.1.0"
+authors = ["David Barnett"]
+edition = "2021"
+rust-version = "1.80.0"
+description = "Parse and analyze your vim plugins, from Rust!"
+readme = "README.md"
+repository = "https://github.com/dbarnett/rust-vim-plugin-metadata"
+license = "MIT"
+keywords = ["vim", "parsing", "tree-sitter"]
+categories = [
+    "parser-implementations",
+]
+exclude = [
+    ".gitignore",
+]
+
+[dependencies]
+tree-sitter = "0.23.0"
+tree-sitter-vim = "0.4.0"
