@@ -7,8 +7,6 @@ name = "vim-plugin-metadata"
 description = "Parse and analyze your vim plugins"
 requires-python = ">=3.8"
 readme = "README.md"
-license = { text = "MIT" }
-authors = [{ name = "David Barnett" }]
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",
     "Intended Audience :: Developers",
