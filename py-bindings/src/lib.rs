@@ -1,11 +1,10 @@
-use pyo3::exceptions::PyException;
 use pyo3::prelude::*;
-
-use vim_plugin_metadata::{VimModule, VimNode, VimParser};
 
 #[pymodule(name = "vim_plugin_metadata")]
 mod py_vim_plugin_metadata {
     use super::*;
+    use pyo3::exceptions::PyException;
+    use vim_plugin_metadata;
 
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
@@ -32,46 +31,15 @@ mod py_vim_plugin_metadata {
         }
     }
 
-    impl From<super::VimNode> for VimNode {
-        fn from(n: super::VimNode) -> VimNode {
+    impl From<vim_plugin_metadata::VimNode> for VimNode {
+        fn from(n: vim_plugin_metadata::VimNode) -> Self {
             match n {
-                super::VimNode::StandaloneDocComment(text) => {
-                    VimNode::StandaloneDocComment { text }
+                vim_plugin_metadata::VimNode::StandaloneDocComment(text) => {
+                    Self::StandaloneDocComment { text }
                 }
-                super::VimNode::Function { name, doc } => VimNode::Function { name, doc },
-            }
-        }
-    }
-
-    #[pyclass]
-    #[derive(Debug)]
-    pub struct VimModule {
-        pub nodes: Vec<VimNode>,
-    }
-
-    #[pymethods]
-    impl VimModule {
-        #[getter]
-        pub fn get_nodes(&self) -> Vec<VimNode> {
-            self.nodes.clone()
-        }
-
-        pub fn __repr__(&self) -> String {
-            format!(
-                "VimModule(nodes=[{}])",
-                self.nodes
-                    .iter()
-                    .map(|n| n.__repr__())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        }
-    }
-
-    impl From<super::VimModule> for VimModule {
-        fn from(m: super::VimModule) -> VimModule {
-            VimModule {
-                nodes: m.nodes.into_iter().map(|n| n.into()).collect(),
+                vim_plugin_metadata::VimNode::Function { name, doc } => {
+                    Self::Function { name, doc }
+                }
             }
         }
     }
@@ -79,24 +47,24 @@ mod py_vim_plugin_metadata {
     #[pyclass]
     #[derive(Default)]
     pub struct VimParser {
-        rust_parser: super::VimParser,
+        rust_parser: vim_plugin_metadata::VimParser,
     }
 
     #[pymethods]
     impl VimParser {
         #[new]
         pub fn new() -> PyResult<Self> {
-            let rust_parser =
-                super::VimParser::new().map_err(|err| PyException::new_err(format!("{err}")))?;
+            let rust_parser = vim_plugin_metadata::VimParser::new()
+                .map_err(|err| PyException::new_err(format!("{err}")))?;
             Ok(Self { rust_parser })
         }
 
-        pub fn parse_module(&mut self, code: &str) -> PyResult<VimModule> {
+        pub fn parse_module(&mut self, code: &str) -> PyResult<Vec<VimNode>> {
             let module = self
                 .rust_parser
                 .parse_module(code)
                 .map_err(|err| PyException::new_err(format!("{err}")))?;
-            Ok(module.into())
+            Ok(module.into_iter().map(|n| n.into()).collect())
         }
     }
 }

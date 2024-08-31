@@ -30,19 +30,17 @@ fn main() {
 }
 ```
 ```
-VimModule {
-    nodes: [
-        StandaloneDocComment(
-            "Standalone header comment",
+[
+    StandaloneDocComment(
+        "Standalone header comment",
+    ),
+    Function {
+        name: "MyFunc",
+        doc: Some(
+            "Does something cool.",
         ),
-        Function {
-            name: "MyFunc",
-            doc: Some(
-                "Does something cool.",
-            ),
-        },
-    ],
-}
+    },
+]
 ```
 
 See tests in src/lib.rs for more usage examples.
