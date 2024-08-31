@@ -25,5 +25,5 @@ endfunc
 """)
 ```
 ```
-VimModule(nodes=[StandaloneDocComment("Standalone header comment"), Function(name="MyFunc", doc="Does something cool.")])
+[StandaloneDocComment("Standalone header comment"), Function(name="MyFunc", doc="Does something cool.")]
 ```
