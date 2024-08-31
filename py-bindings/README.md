@@ -13,6 +13,13 @@ pip install it, point it at a file, get metadata:
 import vim_plugin_metadata
 
 parser = vim_plugin_metadata.VimParser()
+parser.parse_plugin_dir(".vim/plugged/someplugin")
+```
+```
+VimPlugin([VimPluginSection("plugin", ...), VimPluginSection("autoload", ...)])
+```
+
+```python
 parser.parse_module("""
 ""
 " Standalone header comment

@@ -12,6 +12,37 @@ bugs. Use at your own risk.
 ```rust
 use vim_plugin_metadata::VimParser;
 
+fn main() {
+    let mut parser = VimParser::new().unwrap();
+    let plugin = parser.parse_plugin_dir(".vim/plugged/someplugin").unwrap();
+    println!("{plugin:#?}");
+}
+```
+```
+VimPlugin {
+    content: [
+        VimPluginSection {
+            name: "plugin",
+            nodes: [
+                StandaloneDocComment( 
+                    "Standalone header comment",
+                ),
+            ],
+        },
+        VimPluginSection {
+            name: "autoload",
+            nodes: [
+                Function {
+                    name: "someplugin#DoThing",
+                    doc: "Does something cool.",
+                },
+            ],
+        },
+    ],
+}
+```
+
+```rust
 const VIMSCRIPT_CODE: &str = r#"
 ""
 " Standalone header comment
@@ -23,11 +54,8 @@ func MyFunc() abort
 endfunc
 "#;
 
-fn main() {
-    let mut parser = VimParser::new();
-    let module = parser.parse_module(VIMSCRIPT_CODE).unwrap();
-    println!("{module:#?}");
-}
+let module = parser.parse_module(VIMSCRIPT_CODE).unwrap();
+println!("{module:#?}");
 ```
 ```
 [

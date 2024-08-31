@@ -1,6 +1,10 @@
-use crate::{Error, VimNode};
-use std::str;
+use crate::{Error, VimNode, VimPlugin, VimPluginSection};
+use itertools::Itertools;
+use std::collections::{HashMap, HashSet};
+use std::path::Path;
+use std::{fs, str};
 use tree_sitter::{Node, Parser, Point, TreeCursor};
+use walkdir::WalkDir;
 
 #[derive(Default)]
 pub struct VimParser {
@@ -12,6 +16,44 @@ impl VimParser {
         let mut parser = Parser::new();
         parser.set_language(&tree_sitter_vim::language())?;
         Ok(Self { parser })
+    }
+
+    pub fn parse_plugin_dir<P: AsRef<Path> + Copy>(&mut self, path: P) -> crate::Result<VimPlugin> {
+        let mut nodes_for_sections: HashMap<String, Vec<VimNode>> = HashMap::new();
+        let section_order = ["instant", "plugin", "syntax", "autoload"];
+        let sections_exclude = HashSet::from(["vroom"]);
+        for entry in WalkDir::new(path) {
+            let entry = entry?;
+            if !(entry.file_type().is_file()
+                && entry.file_name().to_string_lossy().ends_with(".vim"))
+            {
+                continue;
+            }
+            let section_name = entry
+                .path()
+                .strip_prefix(path)
+                .unwrap()
+                .iter()
+                .nth(0)
+                .expect("path should be a strict prefix of path under it")
+                .to_string_lossy();
+            if sections_exclude.contains(section_name.as_ref()) {
+                continue;
+            }
+            let module_contents = fs::read_to_string(entry.path())?;
+            let module_nodes = self.parse_module(module_contents.as_str())?;
+            nodes_for_sections
+                .entry(section_name.into())
+                .or_default()
+                .extend(module_nodes);
+        }
+        let sections = Self::sorted_by_partial_key_order(
+            IntoIterator::into_iter(nodes_for_sections),
+            &section_order,
+        )
+        .map(|(name, nodes)| VimPluginSection { name, nodes })
+        .collect();
+        Ok(VimPlugin { content: sections })
     }
 
     pub fn parse_module(&mut self, code: &str) -> crate::Result<Vec<VimNode>> {
@@ -69,6 +111,23 @@ impl VimParser {
             nodes.push(VimNode::StandaloneDocComment(comment_text));
         };
         Ok(nodes)
+    }
+
+    fn sorted_by_partial_key_order<T>(
+        iter: impl Iterator<Item = (String, Vec<T>)>,
+        order: &[&str],
+    ) -> impl Iterator<Item = (String, Vec<T>)> {
+        let order_index: HashMap<_, _> = order
+            .iter()
+            .enumerate()
+            .map(|(i, name)| (*name, i))
+            .collect();
+        iter.sorted_by(|(k1, _), (k2, _)| {
+            Ord::cmp(
+                &(order_index.get(k1.as_str()).unwrap_or(&order.len()), k1),
+                &(order_index.get(k2.as_str()).unwrap_or(&order.len()), k2),
+            )
+        })
     }
 
     fn get_funcname_for_def<'a>(tree_cursor: &mut TreeCursor, source: &'a [u8]) -> Option<&'a str> {
@@ -145,8 +204,10 @@ impl VimParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::parser::VimParser;
     use pretty_assertions::assert_eq;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::tempdir;
 
     #[test]
     fn parse_module_empty() {
@@ -321,5 +382,85 @@ endfunction
                 "Fun stuff 🎈 ( ͡° ͜ʖ ͡°)".into()
             )]
         );
+    }
+
+    #[test]
+    fn parse_plugin_dir_empty() {
+        let mut parser = VimParser::new().unwrap();
+        let tmp_dir = tempdir().unwrap();
+        let plugin = parser.parse_plugin_dir(tmp_dir.path()).unwrap();
+        assert_eq!(plugin, VimPlugin { content: vec![] });
+    }
+
+    #[test]
+    fn parse_plugin_dir_one_autoload_func() {
+        let mut parser = VimParser::new().unwrap();
+        let tmp_dir = tempdir().unwrap();
+        create_plugin_file(
+            tmp_dir.path(),
+            "autoload/foo.vim",
+            r#"
+func! foo#Bar() abort
+  sleep 1
+endfunc
+"#,
+        );
+        let plugin = parser.parse_plugin_dir(tmp_dir.path()).unwrap();
+        assert_eq!(
+            plugin,
+            VimPlugin {
+                content: vec![VimPluginSection {
+                    name: "autoload".into(),
+                    nodes: vec![VimNode::Function {
+                        name: "foo#Bar".into(),
+                        doc: None
+                    }]
+                }]
+            }
+        );
+    }
+
+    #[test]
+    fn parse_plugin_dir_subdirs_instant_plugin_autoload_others() {
+        let mut parser = VimParser::new().unwrap();
+        let tmp_dir = tempdir().unwrap();
+        create_plugin_file(tmp_dir.path(), "autoload/x.vim", "");
+        create_plugin_file(tmp_dir.path(), "plugin/x.vim", "");
+        create_plugin_file(tmp_dir.path(), "instant/x.vim", "");
+        create_plugin_file(tmp_dir.path(), "other1/x.vim", "");
+        create_plugin_file(tmp_dir.path(), "other2/x.vim", "");
+        assert_eq!(
+            parser.parse_plugin_dir(tmp_dir.path()).unwrap(),
+            VimPlugin {
+                content: vec![
+                    VimPluginSection {
+                        name: "instant".into(),
+                        nodes: vec![],
+                    },
+                    VimPluginSection {
+                        name: "plugin".into(),
+                        nodes: vec![],
+                    },
+                    VimPluginSection {
+                        name: "autoload".into(),
+                        nodes: vec![],
+                    },
+                    VimPluginSection {
+                        name: "other1".into(),
+                        nodes: vec![],
+                    },
+                    VimPluginSection {
+                        name: "other2".into(),
+                        nodes: vec![],
+                    },
+                ]
+            }
+        );
+    }
+
+    fn create_plugin_file<P: AsRef<Path>>(root: &Path, subpath: P, contents: &str) {
+        let filepath = root.join(subpath);
+        fs::create_dir_all(filepath.parent().unwrap()).unwrap();
+        fs::write(filepath, contents).unwrap()
     }
 }
