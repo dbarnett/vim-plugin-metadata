@@ -17,11 +17,11 @@ mod py_vim_plugin_metadata {
     #[pymethods]
     impl VimNode {
         pub fn __repr__(&self) -> String {
-            match self {
-                VimNode::StandaloneDocComment { ref text } => {
+            match &self {
+                Self::StandaloneDocComment { text } => {
                     format!("StandaloneDocComment({text:?})")
                 }
-                VimNode::Function { ref name, ref doc } => {
+                Self::Function { name, doc } => {
                     let mut args_str = format!("name={name:?}");
                     if let Some(doc) = doc {
                         args_str.push_str(format!(", doc={doc:?}").as_str());
@@ -85,10 +85,10 @@ mod py_vim_plugin_metadata {
     #[pymethods]
     impl VimParser {
         #[new]
-        pub fn new() -> Self {
-            Self {
-                rust_parser: super::VimParser::new(),
-            }
+        pub fn new() -> PyResult<Self> {
+            let rust_parser =
+                super::VimParser::new().map_err(|err| PyException::new_err(format!("{err}")))?;
+            Ok(Self { rust_parser })
         }
 
         pub fn parse_module(&mut self, code: &str) -> PyResult<VimModule> {

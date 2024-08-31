@@ -1,6 +1,7 @@
-use std::{error::Error, str};
+use core::fmt;
+use std::{error, str};
 
-use tree_sitter::{Node, Parser, Point, TreeCursor};
+use tree_sitter::{LanguageError, Node, Parser, Point, TreeCursor};
 
 #[derive(Debug, PartialEq)]
 pub struct VimModule {
@@ -18,17 +19,42 @@ pub struct VimParser {
     parser: Parser,
 }
 
+#[derive(Debug)]
+pub enum Error {
+    GrammarError(LanguageError),
+    ParsingFailure,
+}
+
+impl From<LanguageError> for Error {
+    fn from(e: LanguageError) -> Self {
+        Self::GrammarError(e)
+    }
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::GrammarError(e) => write!(f, "Error loading grammar: {e}"),
+            Self::ParsingFailure => {
+                write!(f, "General failure from tree-sitter while parsing syntax")
+            }
+        }
+    }
+}
+
+impl error::Error for Error {}
+
+type Result<T> = core::result::Result<T, Error>;
+
 impl VimParser {
-    pub fn new() -> VimParser {
+    pub fn new() -> Result<VimParser> {
         let mut parser = Parser::new();
-        parser
-            .set_language(&tree_sitter_vim::language())
-            .expect("Error loading Vim grammar");
-        VimParser { parser }
+        parser.set_language(&tree_sitter_vim::language())?;
+        Ok(VimParser { parser })
     }
 
-    pub fn parse_module(&mut self, code: &str) -> Result<VimModule, Box<dyn Error>> {
-        let tree = self.parser.parse(code, None).unwrap();
+    pub fn parse_module(&mut self, code: &str) -> Result<VimModule> {
+        let tree = self.parser.parse(code, None).ok_or(Error::ParsingFailure)?;
         let mut tree_cursor = tree.walk();
         let mut nodes: Vec<VimNode> = Vec::new();
         let mut last_block_comment: Option<(String, Point)> = None;
@@ -163,14 +189,14 @@ mod tests {
 
     #[test]
     fn parse_empty() {
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module("").unwrap();
         assert_eq!(module, VimModule { nodes: vec![] });
     }
 
     #[test]
     fn parse_one_nondoc_comment() {
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module("\" A comment").unwrap();
         assert_eq!(module, VimModule { nodes: vec![] });
     }
@@ -181,7 +207,7 @@ mod tests {
 ""
 " Foo
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -197,7 +223,7 @@ mod tests {
 "" Foo
 "bar
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -214,7 +240,7 @@ func MyFunc() abort
   return 1
 endfunc
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -238,7 +264,7 @@ func MyFunc() abort
   return 1
 endfunc
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -258,7 +284,7 @@ endfunc
 
 "" Another doc
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -277,7 +303,7 @@ endfunc
 "" One doc
  " Ignored comment
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -294,7 +320,7 @@ endfunc
     #[test]
     fn parse_autoload_funcname() {
         let code = "func foo#bar#Baz() | endfunc";
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -310,7 +336,7 @@ endfunc
     #[test]
     fn parse_scriptlocal_funcname() {
         let code = "func s:SomeFunc() | endfunc";
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -334,7 +360,7 @@ function! Outer() abort
   return l:thing
 endfunction
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
@@ -356,7 +382,7 @@ endfunction
 ""
 " Fun stuff 🎈 ( ͡° ͜ʖ ͡°)
 "#;
-        let mut parser = VimParser::new();
+        let mut parser = VimParser::new().unwrap();
         let module = parser.parse_module(code).unwrap();
         assert_eq!(
             module,
