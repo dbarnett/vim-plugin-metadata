@@ -1,0 +1,27 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "vim-plugin-metadata"
+description = "Parse and analyze your vim plugins"
+requires-python = ">=3.8"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "David Barnett" }]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Programming Language :: Python :: Implementation :: PyPy",
+    "Topic :: Software Development :: Libraries",
+]
+dynamic = ["version"]
+
+[project.urls]
+Repository = "https://github.com/dbarnett/rust-vim-plugin-metadata"
+Issues = "https://github.com/dbarnett/rust-vim-plugin-metadata/issues"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
