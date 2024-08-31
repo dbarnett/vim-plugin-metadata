@@ -19,3 +19,6 @@ exclude = [
 [dependencies]
 tree-sitter = "0.23.0"
 tree-sitter-vim = "0.4.0"
+
+[dev-dependencies]
+pretty_assertions = "1.4.0"
