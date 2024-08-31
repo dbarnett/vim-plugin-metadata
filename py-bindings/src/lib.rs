@@ -22,11 +22,11 @@ mod py_vim_plugin_metadata {
                     format!("StandaloneDocComment({text:?})")
                 }
                 VimNode::Function { ref name, ref doc } => {
-                    let doc_label = doc
-                        .as_ref()
-                        .map(|text| format!("doc={text:?}"))
-                        .unwrap_or("".to_string());
-                    format!("Function(name={name:?}{doc_label})")
+                    let mut args_str = format!("name={name:?}");
+                    if let Some(doc) = doc {
+                        args_str.push_str(format!(", doc={doc:?}").as_str());
+                    }
+                    format!("Function({args_str})")
                 }
             }
         }
