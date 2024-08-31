@@ -1,0 +1,20 @@
+[workspace]
+members = [
+    "lib",
+    "py-bindings",
+]
+resolver = "2"
+
+[workspace.package]
+authors = ["David Barnett"]
+edition = "2018"
+rust-version = "1.80.0"
+repository = "https://github.com/dbarnett/rust-vim-plugin-metadata"
+license = "MIT"
+keywords = ["vim", "parsing", "tree-sitter"]
+categories = [
+    "parser-implementations",
+]
+
+[workspace.dependencies]
+vim-plugin-metadata = { path = "lib" }
