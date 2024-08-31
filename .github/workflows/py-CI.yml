@@ -11,7 +11,7 @@ on:
       - main
       - master
     tags:
-      - '*'
+      - 'py-v*'
   pull_request:
   workflow_dispatch:
 
@@ -174,4 +174,3 @@ jobs:
         with:
           command: upload
           args: --non-interactive --skip-existing wheels-*/*
-          working-directory: py-bindings
