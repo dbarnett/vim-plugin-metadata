@@ -52,21 +52,22 @@ impl VimParser {
                         VimParser::consume_block_comment(&mut tree_cursor, code.as_bytes());
                 }
                 "function_definition" => {
-                    let decl = node
-                        .children(&mut tree_cursor)
-                        .find(|c| c.kind() == "function_declaration")
-                        .unwrap();
-                    let funcname_node = decl
-                        .children(&mut tree_cursor)
-                        .find(|c| c.kind() == "identifier")
-                        .unwrap();
                     let doc = last_block_comment
                         .take()
                         .map(|(comment_text, _)| comment_text);
-                    nodes.push(VimNode::Function {
-                        name: VimParser::get_node_text(&funcname_node, code.as_bytes()).to_string(),
-                        doc,
-                    });
+                    if let Some(funcname) =
+                        VimParser::get_funcname_for_def(&mut tree_cursor, code.as_bytes())
+                    {
+                        nodes.push(VimNode::Function {
+                            name: funcname.to_owned(),
+                            doc,
+                        });
+                    } else {
+                        eprintln!(
+                            "Failed to find function name for function_definition at {:?}",
+                            tree_cursor.node().start_position()
+                        );
+                    }
                 }
                 _ => {
                     // Silently ignore other node kinds.
@@ -81,6 +82,20 @@ impl VimParser {
             nodes.push(VimNode::StandaloneDocComment(comment_text));
         };
         Ok(VimModule { nodes })
+    }
+
+    fn get_funcname_for_def<'a>(tree_cursor: &mut TreeCursor, source: &'a [u8]) -> Option<&'a str> {
+        let node = tree_cursor.node();
+        assert_eq!(node.kind(), "function_definition");
+        let decl = node
+            .children(tree_cursor)
+            .find(|c| c.kind() == "function_declaration");
+        let ident = decl.and_then(|decl| {
+            decl.children(tree_cursor)
+                .find(|c| c.kind() == "identifier" || c.kind() == "scoped_identifier")
+        });
+
+        ident.as_ref().map(|n| VimParser::get_node_text(n, source))
     }
 
     fn consume_block_comment(
@@ -143,6 +158,8 @@ impl VimParser {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn parse_empty() {
@@ -269,6 +286,65 @@ endfunc
                     VimNode::StandaloneDocComment("One doc".into()),
                     // Comment at different indentation is treated as a normal
                     // non-doc comment and ignored.
+                ],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_autoload_funcname() {
+        let code = "func foo#bar#Baz() | endfunc";
+        let mut parser = VimParser::new();
+        let module = parser.parse_module(code).unwrap();
+        assert_eq!(
+            module,
+            VimModule {
+                nodes: vec![VimNode::Function {
+                    name: "foo#bar#Baz".into(),
+                    doc: None
+                },],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_scriptlocal_funcname() {
+        let code = "func s:SomeFunc() | endfunc";
+        let mut parser = VimParser::new();
+        let module = parser.parse_module(code).unwrap();
+        assert_eq!(
+            module,
+            VimModule {
+                nodes: vec![VimNode::Function {
+                    name: "s:SomeFunc".into(),
+                    doc: None
+                },],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_nested_func() {
+        let code = r#"
+function! Outer() abort
+  let l:thing = {}
+  function l:thing.Inner() abort
+    return 1
+  endfunction
+  return l:thing
+endfunction
+"#;
+        let mut parser = VimParser::new();
+        let module = parser.parse_module(code).unwrap();
+        assert_eq!(
+            module,
+            VimModule {
+                nodes: vec![
+                    VimNode::Function {
+                        name: "Outer".into(),
+                        doc: None
+                    },
+                    // TODO: Should have more nodes for inner function.
                 ],
             }
         );
