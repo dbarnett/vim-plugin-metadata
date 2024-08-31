@@ -1,5 +1,5 @@
-use pyo3::prelude::*;
 use pyo3::exceptions::PyException;
+use pyo3::prelude::*;
 
 use vim_plugin_metadata::{VimModule, VimNode, VimParser};
 
@@ -20,11 +20,14 @@ mod py_vim_plugin_metadata {
             match self {
                 VimNode::StandaloneDocComment { ref text } => {
                     format!("StandaloneDocComment({text:?})")
-                },
+                }
                 VimNode::Function { ref name, ref doc } => {
-                    let doc_label = doc.as_ref().map(|text| format!("doc={text:?}")).unwrap_or("".to_string());
+                    let doc_label = doc
+                        .as_ref()
+                        .map(|text| format!("doc={text:?}"))
+                        .unwrap_or("".to_string());
                     format!("Function(name={name:?}{doc_label})")
-                },
+                }
             }
         }
     }
@@ -32,7 +35,9 @@ mod py_vim_plugin_metadata {
     impl From<super::VimNode> for VimNode {
         fn from(n: super::VimNode) -> VimNode {
             match n {
-                super::VimNode::StandaloneDocComment(text) => VimNode::StandaloneDocComment { text },
+                super::VimNode::StandaloneDocComment(text) => {
+                    VimNode::StandaloneDocComment { text }
+                }
                 super::VimNode::Function { name, doc } => VimNode::Function { name, doc },
             }
         }
@@ -54,7 +59,12 @@ mod py_vim_plugin_metadata {
         pub fn __repr__(&self) -> String {
             format!(
                 "VimModule(nodes=[{}])",
-                self.nodes.iter().map(|n| n.__repr__()).collect::<Vec<_>>().join(", "))
+                self.nodes
+                    .iter()
+                    .map(|n| n.__repr__())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
     }
 
@@ -82,7 +92,10 @@ mod py_vim_plugin_metadata {
         }
 
         pub fn parse_module(&mut self, code: &str) -> PyResult<VimModule> {
-            let module = self.rust_parser.parse_module(code).map_err(|err| PyException::new_err(format!("{err}")))?;
+            let module = self
+                .rust_parser
+                .parse_module(code)
+                .map_err(|err| PyException::new_err(format!("{err}")))?;
             Ok(module.into())
         }
     }
