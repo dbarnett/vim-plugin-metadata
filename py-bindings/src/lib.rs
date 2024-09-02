@@ -6,6 +6,8 @@ mod py_vim_plugin_metadata {
     use pyo3::exceptions::{PyException, PyIOError};
     use vim_plugin_metadata;
 
+    /// A representation of a single high-level grammar token of vim syntax,
+    /// such as a comment or function.
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
     pub enum VimNode {
@@ -51,6 +53,7 @@ mod py_vim_plugin_metadata {
         pub nodes: Vec<VimNode>,
     }
 
+    /// A section of a plugin, such as the "autoload" subdirectory.
     #[pymethods]
     impl VimPluginSection {
         #[getter]
@@ -77,6 +80,7 @@ mod py_vim_plugin_metadata {
         }
     }
 
+    /// An entire vim plugin with all the metadata parsed from its files.
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
     pub struct VimPlugin {
@@ -129,6 +133,7 @@ mod py_vim_plugin_metadata {
             Ok(Self { rust_parser })
         }
 
+        /// Parses all supported metadata from a single plugin at the given path.
         pub fn parse_plugin_dir(&mut self, path: &str) -> PyResult<VimPlugin> {
             let plugin = self
                 .rust_parser
@@ -142,6 +147,7 @@ mod py_vim_plugin_metadata {
             Ok(plugin.into())
         }
 
+        /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
         pub fn parse_module(&mut self, code: &str) -> PyResult<Vec<VimNode>> {
             let module = self
                 .rust_parser

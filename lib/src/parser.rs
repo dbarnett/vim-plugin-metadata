@@ -18,6 +18,7 @@ impl VimParser {
         Ok(Self { parser })
     }
 
+    /// Parses all supported metadata from a single plugin at the given path.
     pub fn parse_plugin_dir<P: AsRef<Path> + Copy>(&mut self, path: P) -> crate::Result<VimPlugin> {
         let mut nodes_for_sections: HashMap<String, Vec<VimNode>> = HashMap::new();
         let section_order = ["instant", "plugin", "syntax", "autoload"];
@@ -56,6 +57,7 @@ impl VimParser {
         Ok(VimPlugin { content: sections })
     }
 
+    /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
     pub fn parse_module(&mut self, code: &str) -> crate::Result<Vec<VimNode>> {
         let tree = self.parser.parse(code, None).ok_or(Error::ParsingFailure)?;
         let mut tree_cursor = tree.walk();
