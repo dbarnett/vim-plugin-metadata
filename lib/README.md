@@ -34,6 +34,8 @@ VimPlugin {
             nodes: [
                 Function {
                     name: "someplugin#DoThing",
+                    args: [],
+                    modifiers: [],
                     doc: "Does something cool.",
                 },
             ],
@@ -64,6 +66,8 @@ println!("{module:#?}");
     ),
     Function {
         name: "MyFunc",
+        args: [],
+        modifiers: [],
         doc: Some(
             "Does something cool.",
         ),
