@@ -133,11 +133,12 @@ impl VimParser {
     fn get_funcname_for_def<'a>(tree_cursor: &mut TreeCursor, source: &'a [u8]) -> Option<&'a str> {
         let node = tree_cursor.node();
         assert_eq!(node.kind(), "function_definition");
+        let mut sub_cursor = node.walk();
         let decl = node
-            .children(tree_cursor)
+            .children(&mut sub_cursor)
             .find(|c| c.kind() == "function_declaration");
         let ident = decl.and_then(|decl| {
-            decl.children(tree_cursor)
+            decl.children(&mut sub_cursor)
                 .find(|c| c.kind() == "identifier" || c.kind() == "scoped_identifier")
         });
 
@@ -315,6 +316,26 @@ endfunc
                 VimNode::StandaloneDocComment("One doc".into()),
                 // Comment at different indentation is treated as a normal
                 // non-doc comment and ignored.
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_module_two_funcs() {
+        let code = r#"func FuncOne() | endfunc
+func FuncTwo() | endfunc"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module(code).unwrap(),
+            vec![
+                VimNode::Function {
+                    name: "FuncOne".into(),
+                    doc: None
+                },
+                VimNode::Function {
+                    name: "FuncTwo".into(),
+                    doc: None
+                },
             ]
         );
     }
