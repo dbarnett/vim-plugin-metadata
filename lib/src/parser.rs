@@ -1,10 +1,14 @@
-use crate::{Error, VimNode, VimPlugin, VimPluginSection};
-use itertools::Itertools;
+use crate::data::VimModule;
+use crate::{Error, VimNode, VimPlugin};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::{fs, str};
 use tree_sitter::{Node, Parser, Point, TreeCursor};
 use walkdir::WalkDir;
+
+const DEFAULT_SECTION_ORDER: [&str; 9] = [
+    "plugin", "instant", "autoload", "syntax", "indent", "ftdetect", "ftplugin", "spell", "colors",
+];
 
 #[derive(Default)]
 pub struct VimParser {
@@ -20,9 +24,8 @@ impl VimParser {
 
     /// Parses all supported metadata from a single plugin at the given path.
     pub fn parse_plugin_dir<P: AsRef<Path> + Copy>(&mut self, path: P) -> crate::Result<VimPlugin> {
-        let mut nodes_for_sections: HashMap<String, Vec<VimNode>> = HashMap::new();
-        let section_order = ["instant", "plugin", "syntax", "autoload"];
-        let sections_exclude = HashSet::from(["vroom"]);
+        let mut modules_for_sections: HashMap<String, Vec<VimModule>> = HashMap::new();
+        let sections_to_include = HashSet::from(DEFAULT_SECTION_ORDER);
         for entry in WalkDir::new(path) {
             let entry = entry?;
             if !(entry.file_type().is_file()
@@ -30,31 +33,34 @@ impl VimParser {
             {
                 continue;
             }
-            let section_name = entry
-                .path()
-                .strip_prefix(path)
-                .unwrap()
+            let relative_path = entry.path().strip_prefix(path).unwrap();
+            let section_name = relative_path
                 .iter()
                 .nth(0)
                 .expect("path should be a strict prefix of path under it")
                 .to_string_lossy();
-            if sections_exclude.contains(section_name.as_ref()) {
+            if !sections_to_include.contains(section_name.as_ref()) {
                 continue;
             }
             let module_contents = fs::read_to_string(entry.path())?;
             let module_nodes = self.parse_module(module_contents.as_str())?;
-            nodes_for_sections
+            modules_for_sections
                 .entry(section_name.into())
                 .or_default()
-                .extend(module_nodes);
+                .push(VimModule {
+                    path: relative_path.into(),
+                    nodes: module_nodes,
+                });
         }
-        let sections = Self::sorted_by_partial_key_order(
-            IntoIterator::into_iter(nodes_for_sections),
-            &section_order,
-        )
-        .map(|(name, nodes)| VimPluginSection { name, nodes })
-        .collect();
-        Ok(VimPlugin { content: sections })
+        let modules = DEFAULT_SECTION_ORDER
+            .iter()
+            .flat_map(|section_name| {
+                modules_for_sections
+                    .remove(*section_name)
+                    .unwrap_or_default()
+            })
+            .collect();
+        Ok(VimPlugin { content: modules })
     }
 
     /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
@@ -113,23 +119,6 @@ impl VimParser {
             nodes.push(VimNode::StandaloneDocComment(comment_text));
         };
         Ok(nodes)
-    }
-
-    fn sorted_by_partial_key_order<T>(
-        iter: impl Iterator<Item = (String, Vec<T>)>,
-        order: &[&str],
-    ) -> impl Iterator<Item = (String, Vec<T>)> {
-        let order_index: HashMap<_, _> = order
-            .iter()
-            .enumerate()
-            .map(|(i, name)| (*name, i))
-            .collect();
-        iter.sorted_by(|(k1, _), (k2, _)| {
-            Ord::cmp(
-                &(order_index.get(k1.as_str()).unwrap_or(&order.len()), k1),
-                &(order_index.get(k2.as_str()).unwrap_or(&order.len()), k2),
-            )
-        })
     }
 
     fn get_funcname_for_def<'a>(tree_cursor: &mut TreeCursor, source: &'a [u8]) -> Option<&'a str> {
@@ -209,7 +198,7 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use std::fs;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use tempfile::tempdir;
 
     #[test]
@@ -432,48 +421,49 @@ endfunc
         assert_eq!(
             plugin,
             VimPlugin {
-                content: vec![VimPluginSection {
-                    name: "autoload".into(),
+                content: vec![VimModule {
+                    path: PathBuf::from("autoload/foo.vim"),
                     nodes: vec![VimNode::Function {
                         name: "foo#Bar".into(),
                         doc: None
                     }]
-                }]
+                }],
             }
         );
     }
 
     #[test]
-    fn parse_plugin_dir_subdirs_instant_plugin_autoload_others() {
+    fn parse_plugin_dir_various_subdirs() {
         let mut parser = VimParser::new().unwrap();
         let tmp_dir = tempdir().unwrap();
+        create_plugin_file(tmp_dir.path(), "ignored_not_in_subdir.vim", "");
         create_plugin_file(tmp_dir.path(), "autoload/x.vim", "");
-        create_plugin_file(tmp_dir.path(), "plugin/x.vim", "");
         create_plugin_file(tmp_dir.path(), "instant/x.vim", "");
-        create_plugin_file(tmp_dir.path(), "other1/x.vim", "");
-        create_plugin_file(tmp_dir.path(), "other2/x.vim", "");
+        create_plugin_file(tmp_dir.path(), "plugin/x.vim", "");
+        create_plugin_file(tmp_dir.path(), "colors/x.vim", "");
+        create_plugin_file(tmp_dir.path(), "spell/x.vim", "");
         assert_eq!(
             parser.parse_plugin_dir(tmp_dir.path()).unwrap(),
             VimPlugin {
                 content: vec![
-                    VimPluginSection {
-                        name: "instant".into(),
+                    VimModule {
+                        path: PathBuf::from("plugin/x.vim"),
                         nodes: vec![],
                     },
-                    VimPluginSection {
-                        name: "plugin".into(),
+                    VimModule {
+                        path: PathBuf::from("instant/x.vim"),
                         nodes: vec![],
                     },
-                    VimPluginSection {
-                        name: "autoload".into(),
+                    VimModule {
+                        path: PathBuf::from("autoload/x.vim"),
                         nodes: vec![],
                     },
-                    VimPluginSection {
-                        name: "other1".into(),
+                    VimModule {
+                        path: PathBuf::from("spell/x.vim"),
                         nodes: vec![],
                     },
-                    VimPluginSection {
-                        name: "other2".into(),
+                    VimModule {
+                        path: PathBuf::from("colors/x.vim"),
                         nodes: vec![],
                     },
                 ]

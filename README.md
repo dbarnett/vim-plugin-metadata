@@ -24,8 +24,8 @@ fn main() {
 ```
 VimPlugin {
     content: [
-        VimPluginSection {
-            name: "plugin",
+        VimModule {
+            path: "plugin/somefile.vim",
             nodes: [ ... ],
         },
     ],
@@ -39,5 +39,5 @@ import vim_plugin_metadata
 vim_plugin_metadata.VimParser().parse_plugin_dir(".vim/plugged/someplugin")
 ```
 ```
-VimPlugin([VimPluginSection("plugin", ...), ...])
+VimPlugin([VimModule("plugin/somefile.vim", ...), ...])
 ```

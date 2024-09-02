@@ -1,7 +1,7 @@
 mod data;
 mod parser;
 
-pub use crate::data::{VimNode, VimPlugin, VimPluginSection};
+pub use crate::data::{VimModule, VimNode, VimPlugin};
 pub use crate::parser::VimParser;
 
 use core::fmt;

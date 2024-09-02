@@ -16,7 +16,7 @@ parser = vim_plugin_metadata.VimParser()
 parser.parse_plugin_dir(".vim/plugged/someplugin")
 ```
 ```
-VimPlugin([VimPluginSection("plugin", ...), VimPluginSection("autoload", ...)])
+VimPlugin([VimModule("plugin/somefile.vim", ...), VimModule("autoload/someplugin.vim", ...)])
 ```
 
 ```python
