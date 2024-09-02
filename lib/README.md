@@ -21,16 +21,16 @@ fn main() {
 ```
 VimPlugin {
     content: [
-        VimPluginSection {
-            name: "plugin",
+        VimModule {
+            path: "plugin/somefile.vim",
             nodes: [
                 StandaloneDocComment( 
                     "Standalone header comment",
                 ),
             ],
         },
-        VimPluginSection {
-            name: "autoload",
+        VimModule {
+            path: "autoload/someplugin.vim",
             nodes: [
                 Function {
                     name: "someplugin#DoThing",

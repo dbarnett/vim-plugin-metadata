@@ -4,6 +4,7 @@ use pyo3::prelude::*;
 mod py_vim_plugin_metadata {
     use super::*;
     use pyo3::exceptions::{PyException, PyIOError};
+    use std::path::{Path, PathBuf};
     use vim_plugin_metadata;
 
     /// A representation of a single high-level grammar token of vim syntax,
@@ -46,19 +47,19 @@ mod py_vim_plugin_metadata {
         }
     }
 
+    /// An individual module (a.k.a. file) of vimscript code.
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
-    pub struct VimPluginSection {
-        pub name: String,
+    pub struct VimModule {
+        pub path: PathBuf,
         pub nodes: Vec<VimNode>,
     }
 
-    /// A section of a plugin, such as the "autoload" subdirectory.
     #[pymethods]
-    impl VimPluginSection {
+    impl VimModule {
         #[getter]
-        pub fn get_name(&self) -> &str {
-            self.name.as_ref()
+        pub fn get_path(&self) -> &Path {
+            self.path.as_ref()
         }
 
         #[getter]
@@ -67,15 +68,15 @@ mod py_vim_plugin_metadata {
         }
 
         pub fn __repr__(&self) -> String {
-            format!("VimPluginSection({:?}, ...)", self.name)
+            format!("VimModule({:?}, ...)", self.path)
         }
     }
 
-    impl From<vim_plugin_metadata::VimPluginSection> for VimPluginSection {
-        fn from(section: vim_plugin_metadata::VimPluginSection) -> Self {
+    impl From<vim_plugin_metadata::VimModule> for VimModule {
+        fn from(module: vim_plugin_metadata::VimModule) -> Self {
             Self {
-                name: section.name,
-                nodes: section.nodes.into_iter().map(|n| n.into()).collect(),
+                path: module.path,
+                nodes: module.nodes.into_iter().map(|n| n.into()).collect(),
             }
         }
     }
@@ -84,13 +85,13 @@ mod py_vim_plugin_metadata {
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
     pub struct VimPlugin {
-        pub content: Vec<VimPluginSection>,
+        pub content: Vec<VimModule>,
     }
 
     #[pymethods]
     impl VimPlugin {
         #[getter]
-        pub fn get_content(&self) -> Vec<VimPluginSection> {
+        pub fn get_content(&self) -> Vec<VimModule> {
             self.content.clone()
         }
 
@@ -99,7 +100,7 @@ mod py_vim_plugin_metadata {
                 "VimPlugin([{}])",
                 self.content
                     .iter()
-                    .map(VimPluginSection::__repr__)
+                    .map(VimModule::__repr__)
                     .collect::<Vec<_>>()
                     .join(", ")
             )
