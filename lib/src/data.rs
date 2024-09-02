@@ -5,7 +5,12 @@ use std::path::PathBuf;
 #[derive(Debug, PartialEq)]
 pub enum VimNode {
     StandaloneDocComment(String),
-    Function { name: String, doc: Option<String> },
+    Function {
+        name: String,
+        args: Vec<String>,
+        modifiers: Vec<String>,
+        doc: Option<String>,
+    },
 }
 
 /// An individual module (a.k.a. file) of vimscript code.

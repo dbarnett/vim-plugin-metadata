@@ -12,8 +12,15 @@ mod py_vim_plugin_metadata {
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
     pub enum VimNode {
-        StandaloneDocComment { text: String },
-        Function { name: String, doc: Option<String> },
+        StandaloneDocComment {
+            text: String,
+        },
+        Function {
+            name: String,
+            args: Vec<String>,
+            modifiers: Vec<String>,
+            doc: Option<String>,
+        },
     }
 
     #[pymethods]
@@ -23,8 +30,14 @@ mod py_vim_plugin_metadata {
                 Self::StandaloneDocComment { text } => {
                     format!("StandaloneDocComment({text:?})")
                 }
-                Self::Function { name, doc } => {
-                    let mut args_str = format!("name={name:?}");
+                Self::Function {
+                    name,
+                    args,
+                    modifiers,
+                    doc,
+                } => {
+                    let mut args_str =
+                        format!("name={name:?}, args={args:?}, modifiers={modifiers:?}");
                     if let Some(doc) = doc {
                         args_str.push_str(format!(", doc={doc:?}").as_str());
                     }
@@ -40,9 +53,17 @@ mod py_vim_plugin_metadata {
                 vim_plugin_metadata::VimNode::StandaloneDocComment(text) => {
                     Self::StandaloneDocComment { text }
                 }
-                vim_plugin_metadata::VimNode::Function { name, doc } => {
-                    Self::Function { name, doc }
-                }
+                vim_plugin_metadata::VimNode::Function {
+                    name,
+                    args,
+                    modifiers,
+                    doc,
+                } => Self::Function {
+                    name,
+                    args,
+                    modifiers,
+                    doc,
+                },
             }
         }
     }

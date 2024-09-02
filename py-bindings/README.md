@@ -32,5 +32,5 @@ endfunc
 """)
 ```
 ```
-[StandaloneDocComment("Standalone header comment"), Function(name="MyFunc", doc="Does something cool.")]
+[StandaloneDocComment("Standalone header comment"), Function(name="MyFunc", args=[], modifiers=["abort"], doc="Does something cool.")]
 ```

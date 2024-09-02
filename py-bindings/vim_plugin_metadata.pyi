@@ -14,6 +14,8 @@ class VimNode:
     @dataclass
     class Function:
         name: str
+        args: List[str]
+        modifiers: List[str]
         doc: Optional[str]
 
 class VimPlugin:

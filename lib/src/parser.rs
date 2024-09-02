@@ -92,18 +92,12 @@ impl VimParser {
                     let doc = last_block_comment
                         .take()
                         .map(|(comment_text, _)| comment_text);
-                    if let Some(funcname) =
-                        Self::get_funcname_for_def(&mut tree_cursor, code.as_bytes())
-                    {
-                        nodes.push(VimNode::Function {
-                            name: funcname.to_owned(),
-                            doc,
-                        });
-                    } else {
-                        eprintln!(
-                            "Failed to find function name for function_definition at {:?}",
-                            tree_cursor.node().start_position()
-                        );
+                    let source = code.as_bytes();
+                    match Self::new_function_from_node(&tree_cursor.node(), doc, source) {
+                        Ok(function) => {
+                            nodes.push(function);
+                        }
+                        Err(err) => eprintln!("{err}"),
                     }
                 }
                 _ => {
@@ -121,19 +115,64 @@ impl VimParser {
         Ok(nodes)
     }
 
-    fn get_funcname_for_def<'a>(tree_cursor: &mut TreeCursor, source: &'a [u8]) -> Option<&'a str> {
-        let node = tree_cursor.node();
+    fn new_function_from_node(
+        node: &Node,
+        doc: Option<String>,
+        source: &[u8],
+    ) -> Result<VimNode, String> {
         assert_eq!(node.kind(), "function_definition");
-        let mut sub_cursor = node.walk();
-        let decl = node
-            .children(&mut sub_cursor)
-            .find(|c| c.kind() == "function_declaration");
+        let mut cursor = node.walk();
+
+        let mut decl = None;
+        let mut modifiers = vec![];
+        for child in node.children(&mut cursor) {
+            match child.kind() {
+                "function" | "endfunction" => {}
+                "function_declaration" => {
+                    decl = Some(child);
+                }
+                "body" => {
+                    break;
+                }
+                // Everything else between function_declaration and body is a modifier.
+                _ => {
+                    modifiers.push(Self::get_node_text(&child, source).to_string());
+                }
+            }
+        }
         let ident = decl.and_then(|decl| {
-            decl.children(&mut sub_cursor)
+            decl.children(&mut cursor)
                 .find(|c| c.kind() == "identifier" || c.kind() == "scoped_identifier")
         });
+        let ident = match ident {
+            Some(ident) => ident,
+            None => {
+                return Err(format!(
+                    "Failed to find function name for function_definition at {:?}",
+                    node.start_position()
+                ));
+            }
+        };
 
-        ident.as_ref().map(|n| Self::get_node_text(n, source))
+        let params = decl.and_then(|decl| {
+            decl.children(&mut cursor)
+                .find(|c| c.kind() == "parameters")
+        });
+
+        Ok(VimNode::Function {
+            name: Self::get_node_text(&ident, source).to_string(),
+            args: params
+                .map(|params| {
+                    params
+                        .children(&mut cursor)
+                        .filter(|c| c.kind() == "identifier" || c.kind() == "spread")
+                        .map(|c| Self::get_node_text(&c, source).to_string())
+                        .collect()
+                })
+                .unwrap_or_default(),
+            modifiers,
+            doc,
+        })
     }
 
     fn consume_block_comment(
@@ -242,7 +281,7 @@ mod tests {
     #[test]
     fn parse_module_bare_function() {
         let code = r#"
-func MyFunc() abort
+func MyFunc()
   return 1
 endfunc
 "#;
@@ -251,6 +290,8 @@ endfunc
             parser.parse_module(code).unwrap(),
             vec![VimNode::Function {
                 name: "MyFunc".into(),
+                args: vec![],
+                modifiers: vec![],
                 doc: None
             }]
         );
@@ -263,7 +304,7 @@ endfunc
 " Does a thing.
 "
 " Call and enjoy.
-func MyFunc() abort
+func MyFunc()
   return 1
 endfunc
 "#;
@@ -272,7 +313,47 @@ endfunc
             parser.parse_module(code).unwrap(),
             vec![VimNode::Function {
                 name: "MyFunc".into(),
+                args: vec![],
+                modifiers: vec![],
                 doc: Some("Does a thing.\n\nCall and enjoy.".into()),
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_module_func_with_args() {
+        let code = r#"
+func MyFunc(arg1, arg2)
+  return 1
+endfunc
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module(code).unwrap(),
+            vec![VimNode::Function {
+                name: "MyFunc".into(),
+                args: vec!["arg1".into(), "arg2".into()],
+                modifiers: vec![],
+                doc: None
+            }]
+        );
+    }
+
+    #[test]
+    fn parse_module_func_with_opt_args_and_modifiers() {
+        let code = r#"
+func! MyFunc(arg1, ...) range dict abort
+  return 1
+endfunc
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module(code).unwrap(),
+            vec![VimNode::Function {
+                name: "MyFunc".into(),
+                args: vec!["arg1".into(), "...".into()],
+                modifiers: vec!["!".into(), "range".into(), "dict".into(), "abort".into()],
+                doc: None
             }]
         );
     }
@@ -321,10 +402,14 @@ func FuncTwo() | endfunc"#;
             vec![
                 VimNode::Function {
                     name: "FuncOne".into(),
+                    args: vec![],
+                    modifiers: vec![],
                     doc: None
                 },
                 VimNode::Function {
                     name: "FuncTwo".into(),
+                    args: vec![],
+                    modifiers: vec![],
                     doc: None
                 },
             ]
@@ -339,6 +424,8 @@ func FuncTwo() | endfunc"#;
             parser.parse_module(code).unwrap(),
             vec![VimNode::Function {
                 name: "foo#bar#Baz".into(),
+                args: vec![],
+                modifiers: vec![],
                 doc: None
             }]
         );
@@ -352,6 +439,8 @@ func FuncTwo() | endfunc"#;
             parser.parse_module(code).unwrap(),
             vec![VimNode::Function {
                 name: "s:SomeFunc".into(),
+                args: vec![],
+                modifiers: vec![],
                 doc: None
             }]
         );
@@ -360,9 +449,9 @@ func FuncTwo() | endfunc"#;
     #[test]
     fn parse_module_nested_func() {
         let code = r#"
-function! Outer() abort
+function Outer()
   let l:thing = {}
-  function l:thing.Inner() abort
+  function l:thing.Inner()
     return 1
   endfunction
   return l:thing
@@ -374,6 +463,8 @@ endfunction
             vec![
                 VimNode::Function {
                     name: "Outer".into(),
+                    args: vec![],
+                    modifiers: vec![],
                     doc: None
                 },
                 // TODO: Should have more nodes for inner function.
@@ -412,7 +503,7 @@ endfunction
             tmp_dir.path(),
             "autoload/foo.vim",
             r#"
-func! foo#Bar() abort
+func foo#Bar()
   sleep 1
 endfunc
 "#,
@@ -425,6 +516,8 @@ endfunc
                     path: PathBuf::from("autoload/foo.vim"),
                     nodes: vec![VimNode::Function {
                         name: "foo#Bar".into(),
+                        args: vec![],
+                        modifiers: vec![],
                         doc: None
                     }]
                 }],
