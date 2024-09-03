@@ -21,6 +21,12 @@ mod py_vim_plugin_metadata {
             modifiers: Vec<String>,
             doc: Option<String>,
         },
+        /// A defined "Flag" like the mechanism used in google/vim-maktaba.
+        Flag {
+            name: String,
+            default_value_token: Option<String>,
+            doc: Option<String>,
+        },
     }
 
     #[pymethods]
@@ -43,6 +49,22 @@ mod py_vim_plugin_metadata {
                     }
                     format!("Function({args_str})")
                 }
+                Self::Flag {
+                    name,
+                    default_value_token,
+                    doc,
+                } => {
+                    let mut args_str = format!("name={name:?}");
+                    if let Some(default_value_token) = default_value_token {
+                        args_str.push_str(
+                            format!(", default_value_token={default_value_token:?}").as_str(),
+                        );
+                    }
+                    if let Some(doc) = doc {
+                        args_str.push_str(format!(", doc={doc:?}").as_str());
+                    }
+                    format!("Flag({args_str})")
+                }
             }
         }
     }
@@ -62,6 +84,15 @@ mod py_vim_plugin_metadata {
                     name,
                     args,
                     modifiers,
+                    doc,
+                },
+                vim_plugin_metadata::VimNode::Flag {
+                    name,
+                    default_value_token,
+                    doc,
+                } => Self::Flag {
+                    name,
+                    default_value_token,
                     doc,
                 },
             }
