@@ -95,14 +95,24 @@ impl VimParser {
                     let doc = last_block_comment
                         .take()
                         .map(|(comment_text, _)| comment_text);
-                    let source = code.as_bytes();
-                    match Self::new_function_from_node(&tree_cursor.node(), doc, source) {
+                    match Self::new_function_from_node(&node, doc, code.as_bytes()) {
                         Ok(function) => {
                             nodes.push(function);
                         }
                         Err(err) => eprintln!("{err}"),
                     }
                 }
+                "call_statement" => {
+                    let doc = last_block_comment
+                        .take()
+                        .map(|(comment_text, _)| comment_text);
+                    if let Some(call_node) =
+                        Self::new_node_from_call_node(&node, doc, code.as_bytes())
+                    {
+                        nodes.push(call_node);
+                    }
+                }
+                "let_statement" | "if_statement" => {}
                 _ => {
                     // Silently ignore other node kinds.
                 }
@@ -189,6 +199,54 @@ impl VimParser {
             modifiers,
             doc,
         })
+    }
+
+    fn new_node_from_call_node(node: &Node, doc: Option<String>, source: &[u8]) -> Option<VimNode> {
+        assert_eq!(node.kind(), "call_statement");
+        let mut cursor = node.walk();
+        let call_exp = node
+            .children(&mut cursor)
+            .find(|c| c.kind() == "call_expression");
+        if let Some(call_exp) = call_exp {
+            if let Some(function) = call_exp.child_by_field_name("function") {
+                let last_func_id = tree_sitter_traversal::traverse(
+                    function.walk(),
+                    tree_sitter_traversal::Order::Pre,
+                )
+                .filter(|n| n.kind() == "identifier")
+                .last();
+                if last_func_id
+                    .is_some_and(|func_id| Self::get_node_text(&func_id, source) == "Flag")
+                {
+                    let arg1 = function.next_named_sibling();
+                    let arg2 = arg1.and_then(|a1| a1.next_named_sibling());
+                    match arg1 {
+                        Some(arg1) if arg1.kind() == "string_literal" => {
+                            // Matched call Flag(arg1, arg2, ...).
+                            let flag_name_literal = Self::get_node_text(&arg1, source);
+                            let flag_name = if let Some(flag_name) = flag_name_literal
+                                .strip_prefix("'")
+                                .and_then(|l| l.strip_suffix("'"))
+                            {
+                                flag_name.to_string()
+                            } else {
+                                quoted_string::unquote_unchecked(flag_name_literal).into()
+                            };
+                            let default_value =
+                                arg2.map(|a2| Self::get_node_text(&a2, source).to_string());
+                            return Some(VimNode::Flag {
+                                name: flag_name,
+                                default_value_token: default_value,
+                                doc,
+                            });
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     fn consume_block_comment(
@@ -312,6 +370,33 @@ mod tests {
                 path: None,
                 doc: "Foo\nbar".to_string().into(),
                 nodes: vec![]
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_doc_before_statement() {
+        let code = r#"
+""
+" Actually a file header.
+echo 'Hi'
+func MyFunc() | endfunc
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: "Actually a file header.".to_string().into(),
+                nodes: vec![
+                    // Note: echo statement doesn't produce any nodes.
+                    VimNode::Function {
+                        name: "MyFunc".into(),
+                        args: vec![],
+                        modifiers: vec![],
+                        doc: None,
+                    }
+                ],
             }
         );
     }
@@ -542,6 +627,106 @@ endfunction
                     },
                     // TODO: Should have more nodes for inner function.
                 ]
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_one_flag() {
+        let code = "call Flag('someflag', 'somedefault')";
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Flag {
+                    name: "someflag".into(),
+                    default_value_token: Some("'somedefault'".into()),
+                    doc: None
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_flag_without_default() {
+        let code = "call Flag('someflag')";
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Flag {
+                    name: "someflag".into(),
+                    default_value_token: None,
+                    doc: None
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_flag_with_doc() {
+        let code = r#"
+""
+" A flag for the value of a thing.
+call Flag('someflag', 'somedefault')
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Flag {
+                    name: "someflag".into(),
+                    default_value_token: Some("'somedefault'".into()),
+                    doc: Some("A flag for the value of a thing.".into()),
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_flag_s_plugin() {
+        let code = r#"
+let [s:plugin, s:enter] = plugin#Enter(expand('<sfile>:p'))
+if !s:enter
+  finish
+endif
+call s:plugin.Flag('someflag', 'somedefault')
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Flag {
+                    name: "someflag".into(),
+                    default_value_token: Some("'somedefault'".into()),
+                    doc: None
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_flag_name_special_chars() {
+        let code = r#"call Flag("some\"'flag֎")"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Flag {
+                    name: r#"some"'flag֎"#.into(),
+                    default_value_token: None,
+                    doc: None
+                }],
             }
         );
     }
