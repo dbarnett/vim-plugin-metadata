@@ -73,6 +73,7 @@ mod py_vim_plugin_metadata {
     #[derive(Clone, Debug, PartialEq)]
     pub struct VimModule {
         pub path: Option<PathBuf>,
+        pub doc: Option<String>,
         pub nodes: Vec<VimNode>,
     }
 
@@ -81,6 +82,11 @@ mod py_vim_plugin_metadata {
         #[getter]
         pub fn get_path(&self) -> Option<PathBuf> {
             self.path.as_ref().map(PathBuf::from)
+        }
+
+        #[getter]
+        pub fn get_doc(&self) -> Option<String> {
+            self.doc.to_owned()
         }
 
         #[getter]
@@ -97,6 +103,7 @@ mod py_vim_plugin_metadata {
         fn from(module: vim_plugin_metadata::VimModule) -> Self {
             Self {
                 path: module.path,
+                doc: module.doc,
                 nodes: module.nodes.into_iter().map(|n| n.into()).collect(),
             }
         }

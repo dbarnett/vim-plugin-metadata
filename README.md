@@ -26,6 +26,7 @@ VimPlugin {
     content: [
         VimModule {
             path: Some("plugin/somefile.vim"),
+            doc: Some("File header comment"),
             nodes: [ ... ],
         },
     ],
@@ -39,5 +40,5 @@ import vim_plugin_metadata
 vim_plugin_metadata.VimParser().parse_plugin_dir(".vim/plugged/someplugin")
 ```
 ```
-VimPlugin([VimModule("plugin/somefile.vim", ...), ...])
+VimPlugin([VimModule("plugin/somefile.vim", doc="File header comment", ...), ...])
 ```

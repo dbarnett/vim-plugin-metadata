@@ -6,6 +6,7 @@ use std::{fs, str};
 use tree_sitter::{Node, Parser, Point, TreeCursor};
 use walkdir::WalkDir;
 
+// TODO: Also support "after" equivalents.
 const DEFAULT_SECTION_ORDER: [&str; 9] = [
     "plugin", "instant", "autoload", "syntax", "indent", "ftdetect", "ftplugin", "spell", "colors",
 ];
@@ -78,24 +79,15 @@ impl VimParser {
     pub fn parse_module_str(&mut self, code: &str) -> crate::Result<VimModule> {
         let tree = self.parser.parse(code, None).ok_or(Error::ParsingFailure)?;
         let mut tree_cursor = tree.walk();
+        let mut doc = None;
         let mut nodes: Vec<VimNode> = Vec::new();
         let mut last_block_comment: Option<(String, Point)> = None;
-        tree_cursor.goto_first_child();
-        loop {
+        let mut reached_end = !tree_cursor.goto_first_child();
+        while !reached_end {
             let node = tree_cursor.node();
-            if let Some((finished_comment_text, _)) =
-                last_block_comment.take_if(|(_, next_pos)| *next_pos != node.start_position())
-            {
-                // Block comment wasn't immediately above the next node.
-                // Treat it as bare standalone doc comment.
-                nodes.push(VimNode::StandaloneDocComment(finished_comment_text));
-            }
             match node.kind() {
                 "comment" => {
-                    if let Some((finished_comment_text, _)) = last_block_comment.take() {
-                        // New comment block after dangling comment block.
-                        nodes.push(VimNode::StandaloneDocComment(finished_comment_text));
-                    }
+                    assert!(last_block_comment.is_none());
                     last_block_comment =
                         Self::consume_block_comment(&mut tree_cursor, code.as_bytes());
                 }
@@ -115,15 +107,28 @@ impl VimParser {
                     // Silently ignore other node kinds.
                 }
             }
-            if !tree_cursor.goto_next_sibling() {
-                break;
+            reached_end = !tree_cursor.goto_next_sibling();
+            if let Some((finished_comment_text, _)) = last_block_comment.take_if(|(_, next_pos)| {
+                reached_end
+                    || tree_cursor.node().kind() == "comment"
+                    || *next_pos != tree_cursor.node().start_position()
+            }) {
+                // Block comment wasn't immediately above the next node.
+                // Treat it as bare standalone doc comment.
+                if doc.is_none() && nodes.is_empty() {
+                    // This standalone doc comment is the first one in the module.
+                    // Treat it as overall module doc.
+                    doc = Some(finished_comment_text);
+                } else {
+                    nodes.push(VimNode::StandaloneDocComment(finished_comment_text));
+                }
             }
         }
-        // Consume any dangling last_block_comment.
-        if let Some((comment_text, _)) = last_block_comment.take() {
-            nodes.push(VimNode::StandaloneDocComment(comment_text));
-        };
-        Ok(VimModule { path: None, nodes })
+        Ok(VimModule {
+            path: None,
+            doc,
+            nodes,
+        })
     }
 
     fn new_function_from_node(
@@ -258,6 +263,7 @@ mod tests {
             parser.parse_module_str("").unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![]
             }
         );
@@ -270,6 +276,7 @@ mod tests {
             parser.parse_module_str("\" A comment").unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![]
             }
         );
@@ -286,7 +293,8 @@ mod tests {
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
-                nodes: vec![VimNode::StandaloneDocComment("Foo".into())]
+                doc: "Foo".to_string().into(),
+                nodes: vec![]
             }
         );
     }
@@ -302,7 +310,8 @@ mod tests {
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
-                nodes: vec![VimNode::StandaloneDocComment("Foo\nbar".into())]
+                doc: "Foo\nbar".to_string().into(),
+                nodes: vec![]
             }
         );
     }
@@ -319,6 +328,7 @@ endfunc
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![VimNode::Function {
                     name: "MyFunc".into(),
                     args: vec![],
@@ -345,6 +355,7 @@ endfunc
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![VimNode::Function {
                     name: "MyFunc".into(),
                     args: vec![],
@@ -367,6 +378,7 @@ endfunc
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![VimNode::Function {
                     name: "MyFunc".into(),
                     args: vec!["arg1".into(), "arg2".into()],
@@ -389,6 +401,7 @@ endfunc
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![VimNode::Function {
                     name: "MyFunc".into(),
                     args: vec!["arg1".into(), "...".into()],
@@ -411,10 +424,8 @@ endfunc
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
-                nodes: vec![
-                    VimNode::StandaloneDocComment("One doc".into()),
-                    VimNode::StandaloneDocComment("Another doc".into()),
-                ]
+                doc: Some("One doc".into()),
+                nodes: vec![VimNode::StandaloneDocComment("Another doc".into()),]
             }
         );
     }
@@ -430,11 +441,11 @@ endfunc
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: Some("One doc".into()),
                 nodes: vec![
-                    VimNode::StandaloneDocComment("One doc".into()),
                     // Comment at different indentation is treated as a normal
                     // non-doc comment and ignored.
-                ]
+                ],
             }
         );
     }
@@ -448,6 +459,7 @@ func FuncTwo() | endfunc"#;
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![
                     VimNode::Function {
                         name: "FuncOne".into(),
@@ -474,6 +486,7 @@ func FuncTwo() | endfunc"#;
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![VimNode::Function {
                     name: "foo#bar#Baz".into(),
                     args: vec![],
@@ -492,6 +505,7 @@ func FuncTwo() | endfunc"#;
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![VimNode::Function {
                     name: "s:SomeFunc".into(),
                     args: vec![],
@@ -518,6 +532,7 @@ endfunction
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
+                doc: None,
                 nodes: vec![
                     VimNode::Function {
                         name: "Outer".into(),
@@ -542,9 +557,8 @@ endfunction
             parser.parse_module_str(code).unwrap(),
             VimModule {
                 path: None,
-                nodes: vec![VimNode::StandaloneDocComment(
-                    "Fun stuff 🎈 ( ͡° ͜ʖ ͡°)".into()
-                )]
+                doc: Some("Fun stuff 🎈 ( ͡° ͜ʖ ͡°)".into()),
+                nodes: vec![],
             }
         );
     }
@@ -576,6 +590,7 @@ endfunc
             VimPlugin {
                 content: vec![VimModule {
                     path: PathBuf::from("autoload/foo.vim").into(),
+                    doc: None,
                     nodes: vec![VimNode::Function {
                         name: "foo#Bar".into(),
                         args: vec![],
@@ -603,22 +618,27 @@ endfunc
                 content: vec![
                     VimModule {
                         path: PathBuf::from("plugin/x.vim").into(),
+                        doc: None,
                         nodes: vec![],
                     },
                     VimModule {
                         path: PathBuf::from("instant/x.vim").into(),
+                        doc: None,
                         nodes: vec![],
                     },
                     VimModule {
                         path: PathBuf::from("autoload/x.vim").into(),
+                        doc: None,
                         nodes: vec![],
                     },
                     VimModule {
                         path: PathBuf::from("spell/x.vim").into(),
+                        doc: None,
                         nodes: vec![],
                     },
                     VimModule {
                         path: PathBuf::from("colors/x.vim").into(),
+                        doc: None,
                         nodes: vec![],
                     },
                 ]
