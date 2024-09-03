@@ -25,7 +25,7 @@ fn main() {
 VimPlugin {
     content: [
         VimModule {
-            path: "plugin/somefile.vim",
+            path: Some("plugin/somefile.vim"),
             nodes: [ ... ],
         },
     ],

@@ -22,7 +22,7 @@ fn main() {
 VimPlugin {
     content: [
         VimModule {
-            path: "plugin/somefile.vim",
+            path: Some("plugin/somefile.vim"),
             nodes: [
                 StandaloneDocComment( 
                     "Standalone header comment",
@@ -30,7 +30,7 @@ VimPlugin {
             ],
         },
         VimModule {
-            path: "autoload/someplugin.vim",
+            path: Some("autoload/someplugin.vim"),
             nodes: [
                 Function {
                     name: "someplugin#DoThing",
@@ -56,23 +56,26 @@ func MyFunc() abort
 endfunc
 "#;
 
-let module = parser.parse_module(VIMSCRIPT_CODE).unwrap();
+let module = parser.parse_module_str(VIMSCRIPT_CODE).unwrap();
 println!("{module:#?}");
 ```
 ```
-[
-    StandaloneDocComment(
-        "Standalone header comment",
-    ),
-    Function {
-        name: "MyFunc",
-        args: [],
-        modifiers: [],
-        doc: Some(
-            "Does something cool.",
+VimModule {
+    path: None,
+    nodes: [
+        StandaloneDocComment(
+            "Standalone header comment",
         ),
-    },
-]
+        Function {
+            name: "MyFunc",
+            args: [],
+            modifiers: [],
+            doc: Some(
+                "Does something cool.",
+            ),
+        },
+    ]
+}
 ```
 
 See tests in src/lib.rs for more usage examples.
