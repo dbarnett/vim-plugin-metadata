@@ -16,7 +16,7 @@ pub enum VimNode {
 /// An individual module (a.k.a. file) of vimscript code.
 #[derive(Debug, PartialEq)]
 pub struct VimModule {
-    pub path: PathBuf,
+    pub path: Option<PathBuf>,
     pub nodes: Vec<VimNode>,
 }
 

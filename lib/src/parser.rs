@@ -42,15 +42,16 @@ impl VimParser {
             if !sections_to_include.contains(section_name.as_ref()) {
                 continue;
             }
-            let module_contents = fs::read_to_string(entry.path())?;
-            let module_nodes = self.parse_module(module_contents.as_str())?;
+            let module = self.parse_module_file(entry.path())?;
+            // Replace absolute path with one relative to plugin root.
+            let module = VimModule {
+                path: relative_path.to_owned().into(),
+                ..module
+            };
             modules_for_sections
                 .entry(section_name.into())
                 .or_default()
-                .push(VimModule {
-                    path: relative_path.into(),
-                    nodes: module_nodes,
-                });
+                .push(module);
         }
         let modules = DEFAULT_SECTION_ORDER
             .iter()
@@ -64,7 +65,17 @@ impl VimParser {
     }
 
     /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
-    pub fn parse_module(&mut self, code: &str) -> crate::Result<Vec<VimNode>> {
+    pub fn parse_module_file<P: AsRef<Path>>(&mut self, path: P) -> crate::Result<VimModule> {
+        let code = fs::read_to_string(path.as_ref())?;
+        let module = self.parse_module_str(&code)?;
+        Ok(VimModule {
+            path: Some(path.as_ref().to_owned()),
+            ..module
+        })
+    }
+
+    /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
+    pub fn parse_module_str(&mut self, code: &str) -> crate::Result<VimModule> {
         let tree = self.parser.parse(code, None).ok_or(Error::ParsingFailure)?;
         let mut tree_cursor = tree.walk();
         let mut nodes: Vec<VimNode> = Vec::new();
@@ -112,7 +123,7 @@ impl VimParser {
         if let Some((comment_text, _)) = last_block_comment.take() {
             nodes.push(VimNode::StandaloneDocComment(comment_text));
         };
-        Ok(nodes)
+        Ok(VimModule { path: None, nodes })
     }
 
     fn new_function_from_node(
@@ -243,13 +254,25 @@ mod tests {
     #[test]
     fn parse_module_empty() {
         let mut parser = VimParser::new().unwrap();
-        assert_eq!(parser.parse_module("").unwrap(), vec![]);
+        assert_eq!(
+            parser.parse_module_str("").unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![]
+            }
+        );
     }
 
     #[test]
     fn parse_module_one_nondoc_comment() {
         let mut parser = VimParser::new().unwrap();
-        assert_eq!(parser.parse_module("\" A comment").unwrap(), vec![]);
+        assert_eq!(
+            parser.parse_module_str("\" A comment").unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![]
+            }
+        );
     }
 
     #[test]
@@ -260,8 +283,11 @@ mod tests {
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::StandaloneDocComment("Foo".into())]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::StandaloneDocComment("Foo".into())]
+            }
         );
     }
 
@@ -273,8 +299,11 @@ mod tests {
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::StandaloneDocComment("Foo\nbar".into())]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::StandaloneDocComment("Foo\nbar".into())]
+            }
         );
     }
 
@@ -287,13 +316,16 @@ endfunc
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::Function {
-                name: "MyFunc".into(),
-                args: vec![],
-                modifiers: vec![],
-                doc: None
-            }]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::Function {
+                    name: "MyFunc".into(),
+                    args: vec![],
+                    modifiers: vec![],
+                    doc: None
+                }]
+            }
         );
     }
 
@@ -310,13 +342,16 @@ endfunc
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::Function {
-                name: "MyFunc".into(),
-                args: vec![],
-                modifiers: vec![],
-                doc: Some("Does a thing.\n\nCall and enjoy.".into()),
-            }]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::Function {
+                    name: "MyFunc".into(),
+                    args: vec![],
+                    modifiers: vec![],
+                    doc: Some("Does a thing.\n\nCall and enjoy.".into()),
+                }]
+            }
         );
     }
 
@@ -329,13 +364,16 @@ endfunc
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::Function {
-                name: "MyFunc".into(),
-                args: vec!["arg1".into(), "arg2".into()],
-                modifiers: vec![],
-                doc: None
-            }]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::Function {
+                    name: "MyFunc".into(),
+                    args: vec!["arg1".into(), "arg2".into()],
+                    modifiers: vec![],
+                    doc: None
+                }]
+            }
         );
     }
 
@@ -348,13 +386,16 @@ endfunc
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::Function {
-                name: "MyFunc".into(),
-                args: vec!["arg1".into(), "...".into()],
-                modifiers: vec!["!".into(), "range".into(), "dict".into(), "abort".into()],
-                doc: None
-            }]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::Function {
+                    name: "MyFunc".into(),
+                    args: vec!["arg1".into(), "...".into()],
+                    modifiers: vec!["!".into(), "range".into(), "dict".into(), "abort".into()],
+                    doc: None
+                }]
+            }
         );
     }
 
@@ -367,11 +408,14 @@ endfunc
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![
-                VimNode::StandaloneDocComment("One doc".into()),
-                VimNode::StandaloneDocComment("Another doc".into()),
-            ]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![
+                    VimNode::StandaloneDocComment("One doc".into()),
+                    VimNode::StandaloneDocComment("Another doc".into()),
+                ]
+            }
         );
     }
 
@@ -383,12 +427,15 @@ endfunc
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![
-                VimNode::StandaloneDocComment("One doc".into()),
-                // Comment at different indentation is treated as a normal
-                // non-doc comment and ignored.
-            ]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![
+                    VimNode::StandaloneDocComment("One doc".into()),
+                    // Comment at different indentation is treated as a normal
+                    // non-doc comment and ignored.
+                ]
+            }
         );
     }
 
@@ -398,21 +445,24 @@ endfunc
 func FuncTwo() | endfunc"#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![
-                VimNode::Function {
-                    name: "FuncOne".into(),
-                    args: vec![],
-                    modifiers: vec![],
-                    doc: None
-                },
-                VimNode::Function {
-                    name: "FuncTwo".into(),
-                    args: vec![],
-                    modifiers: vec![],
-                    doc: None
-                },
-            ]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![
+                    VimNode::Function {
+                        name: "FuncOne".into(),
+                        args: vec![],
+                        modifiers: vec![],
+                        doc: None
+                    },
+                    VimNode::Function {
+                        name: "FuncTwo".into(),
+                        args: vec![],
+                        modifiers: vec![],
+                        doc: None
+                    },
+                ]
+            }
         );
     }
 
@@ -421,13 +471,16 @@ func FuncTwo() | endfunc"#;
         let code = "func foo#bar#Baz() | endfunc";
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::Function {
-                name: "foo#bar#Baz".into(),
-                args: vec![],
-                modifiers: vec![],
-                doc: None
-            }]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::Function {
+                    name: "foo#bar#Baz".into(),
+                    args: vec![],
+                    modifiers: vec![],
+                    doc: None
+                }]
+            }
         );
     }
 
@@ -436,13 +489,16 @@ func FuncTwo() | endfunc"#;
         let code = "func s:SomeFunc() | endfunc";
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::Function {
-                name: "s:SomeFunc".into(),
-                args: vec![],
-                modifiers: vec![],
-                doc: None
-            }]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::Function {
+                    name: "s:SomeFunc".into(),
+                    args: vec![],
+                    modifiers: vec![],
+                    doc: None
+                }]
+            }
         );
     }
 
@@ -459,16 +515,19 @@ endfunction
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![
-                VimNode::Function {
-                    name: "Outer".into(),
-                    args: vec![],
-                    modifiers: vec![],
-                    doc: None
-                },
-                // TODO: Should have more nodes for inner function.
-            ]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![
+                    VimNode::Function {
+                        name: "Outer".into(),
+                        args: vec![],
+                        modifiers: vec![],
+                        doc: None
+                    },
+                    // TODO: Should have more nodes for inner function.
+                ]
+            }
         );
     }
 
@@ -480,10 +539,13 @@ endfunction
 "#;
         let mut parser = VimParser::new().unwrap();
         assert_eq!(
-            parser.parse_module(code).unwrap(),
-            vec![VimNode::StandaloneDocComment(
-                "Fun stuff 🎈 ( ͡° ͜ʖ ͡°)".into()
-            )]
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                nodes: vec![VimNode::StandaloneDocComment(
+                    "Fun stuff 🎈 ( ͡° ͜ʖ ͡°)".into()
+                )]
+            }
         );
     }
 
@@ -513,7 +575,7 @@ endfunc
             plugin,
             VimPlugin {
                 content: vec![VimModule {
-                    path: PathBuf::from("autoload/foo.vim"),
+                    path: PathBuf::from("autoload/foo.vim").into(),
                     nodes: vec![VimNode::Function {
                         name: "foo#Bar".into(),
                         args: vec![],
@@ -540,23 +602,23 @@ endfunc
             VimPlugin {
                 content: vec![
                     VimModule {
-                        path: PathBuf::from("plugin/x.vim"),
+                        path: PathBuf::from("plugin/x.vim").into(),
                         nodes: vec![],
                     },
                     VimModule {
-                        path: PathBuf::from("instant/x.vim"),
+                        path: PathBuf::from("instant/x.vim").into(),
                         nodes: vec![],
                     },
                     VimModule {
-                        path: PathBuf::from("autoload/x.vim"),
+                        path: PathBuf::from("autoload/x.vim").into(),
                         nodes: vec![],
                     },
                     VimModule {
-                        path: PathBuf::from("spell/x.vim"),
+                        path: PathBuf::from("spell/x.vim").into(),
                         nodes: vec![],
                     },
                     VimModule {
-                        path: PathBuf::from("colors/x.vim"),
+                        path: PathBuf::from("colors/x.vim").into(),
                         nodes: vec![],
                     },
                 ]

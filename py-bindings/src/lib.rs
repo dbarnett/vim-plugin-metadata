@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 mod py_vim_plugin_metadata {
     use super::*;
     use pyo3::exceptions::{PyException, PyIOError};
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use vim_plugin_metadata;
 
     /// A representation of a single high-level grammar token of vim syntax,
@@ -72,15 +72,15 @@ mod py_vim_plugin_metadata {
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
     pub struct VimModule {
-        pub path: PathBuf,
+        pub path: Option<PathBuf>,
         pub nodes: Vec<VimNode>,
     }
 
     #[pymethods]
     impl VimModule {
         #[getter]
-        pub fn get_path(&self) -> &Path {
-            self.path.as_ref()
+        pub fn get_path(&self) -> Option<PathBuf> {
+            self.path.as_ref().map(PathBuf::from)
         }
 
         #[getter]
@@ -170,12 +170,21 @@ mod py_vim_plugin_metadata {
         }
 
         /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
-        pub fn parse_module(&mut self, code: &str) -> PyResult<Vec<VimNode>> {
+        pub fn parse_module_file(&mut self, path: &str) -> PyResult<VimModule> {
             let module = self
                 .rust_parser
-                .parse_module(code)
+                .parse_module_file(path)
                 .map_err(|err| PyException::new_err(format!("{err}")))?;
-            Ok(module.into_iter().map(|n| n.into()).collect())
+            Ok(module.into())
+        }
+
+        /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
+        pub fn parse_module_str(&mut self, code: &str) -> PyResult<VimModule> {
+            let module = self
+                .rust_parser
+                .parse_module_str(code)
+                .map_err(|err| PyException::new_err(format!("{err}")))?;
+            Ok(module.into())
         }
     }
 }
