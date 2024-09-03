@@ -22,7 +22,7 @@ VimPlugin([VimModule("plugin/somefile.vim", ...), VimModule("autoload/someplugin
 ```python
 parser.parse_module_str("""
 ""
-" Standalone header comment
+" File header comment
 
 ""
 " Does something cool.
@@ -32,5 +32,5 @@ endfunc
 """)
 ```
 ```
-VimModule(nodes=[StandaloneDocComment("Standalone header comment"), Function(name="MyFunc", args=[], modifiers=["abort"], doc="Does something cool.")])
+VimModule(doc="File header comment", nodes=[Function(name="MyFunc", args=[], modifiers=["abort"], doc="Does something cool.")])
 ```

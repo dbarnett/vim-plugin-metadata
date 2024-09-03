@@ -23,14 +23,12 @@ VimPlugin {
     content: [
         VimModule {
             path: Some("plugin/somefile.vim"),
-            nodes: [
-                StandaloneDocComment( 
-                    "Standalone header comment",
-                ),
-            ],
+            doc: Some("File header comment"),
+            nodes: [],
         },
         VimModule {
             path: Some("autoload/someplugin.vim"),
+            doc: None,
             nodes: [
                 Function {
                     name: "someplugin#DoThing",
@@ -47,7 +45,7 @@ VimPlugin {
 ```rust
 const VIMSCRIPT_CODE: &str = r#"
 ""
-" Standalone header comment
+" File header comment
 
 ""
 " Does something cool.
@@ -62,10 +60,8 @@ println!("{module:#?}");
 ```
 VimModule {
     path: None,
+    doc: Some("File header comment"),
     nodes: [
-        StandaloneDocComment(
-            "Standalone header comment",
-        ),
         Function {
             name: "MyFunc",
             args: [],

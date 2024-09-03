@@ -17,6 +17,7 @@ pub enum VimNode {
 #[derive(Debug, PartialEq)]
 pub struct VimModule {
     pub path: Option<PathBuf>,
+    pub doc: Option<String>,
     pub nodes: Vec<VimNode>,
 }
 
