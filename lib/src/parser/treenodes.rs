@@ -107,6 +107,31 @@ impl<'a> TreeNodeMetadata<'a> {
         })
     }
 
+    fn get_command_node(&self) -> Result<VimNode, String> {
+        let treenode = self.try_get_treenode()?;
+        let name = treenode
+            .child_by_field_name("name")
+            .map(|n| get_treenode_text(&n, self.source))
+            .ok_or_else(|| {
+                format!(
+                    "Failed to find command name for {} at {:?}",
+                    treenode.kind(),
+                    treenode.start_position(),
+                )
+            })?;
+        let mut cursor = treenode.walk();
+        let modifiers: Vec<_> = treenode
+            .children(&mut cursor)
+            .filter(|c| c.kind() == "command_attribute")
+            .map(|c| get_treenode_text(&c, self.source).to_string())
+            .collect();
+        Ok(VimNode::Command {
+            name: name.to_string(),
+            modifiers,
+            doc: self.doc.clone(),
+        })
+    }
+
     fn get_flag_node(&self) -> Result<Option<VimNode>, String> {
         let treenode = self.try_get_treenode()?;
         let mut cursor = treenode.walk();
@@ -154,7 +179,10 @@ impl<'a> TreeNodeMetadata<'a> {
     }
 
     pub(crate) fn maybe_consume_doc(&mut self, doc: &mut Option<TreeNodeMetadata>) {
-        if !matches!(self.kind(), "function_definition" | "call_statement") {
+        if !matches!(
+            self.kind(),
+            "function_definition" | "command_statement" | "call_statement"
+        ) {
             return;
         }
         if let Some(VimNode::StandaloneDocComment(consumed_doc)) = doc.take().and_then(|doc| {
@@ -211,6 +239,18 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
             "function_definition" => {
                 let mut nodes = vec![];
                 match metadata.get_func_node() {
+                    Ok(node) => {
+                        nodes.push(node);
+                    }
+                    Err(err) => {
+                        eprintln!("{err}");
+                    }
+                }
+                nodes
+            }
+            "command_statement" => {
+                let mut nodes = vec![];
+                match metadata.get_command_node() {
                     Ok(node) => {
                         nodes.push(node);
                     }
@@ -281,6 +321,19 @@ mod tests {
             nodes,
             vec![
                 // Function skipped (printed to stderr instead).
+            ]
+        );
+    }
+
+    #[test]
+    fn metadata_into_nodes_command_missing_name() {
+        let code = r"command -bang";
+        let tree = tree_from_code(code);
+        let nodes: Vec<_> = node_metadata_from_code(&tree, code).into();
+        assert_eq!(
+            nodes,
+            vec![
+                // Command skipped (printed to stderr instead).
             ]
         );
     }
