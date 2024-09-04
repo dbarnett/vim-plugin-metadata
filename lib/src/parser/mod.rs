@@ -3,8 +3,11 @@ use crate::{Error, VimNode, VimPlugin};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::{fs, str};
-use tree_sitter::{Node, Parser, Point, TreeCursor};
+use tree_sitter::{Parser, Point};
+use treenodes::TreeNodeMetadata;
 use walkdir::WalkDir;
+
+mod treenodes;
 
 // TODO: Also support "after" equivalents.
 const DEFAULT_SECTION_ORDER: [&str; 9] = [
@@ -79,230 +82,75 @@ impl VimParser {
     pub fn parse_module_str(&mut self, code: &str) -> crate::Result<VimModule> {
         let tree = self.parser.parse(code, None).ok_or(Error::ParsingFailure)?;
         let mut tree_cursor = tree.walk();
-        let mut doc = None;
-        let mut nodes: Vec<VimNode> = Vec::new();
-        let mut last_block_comment: Option<(String, Point)> = None;
+        let mut module_nodes: Vec<VimNode> = Vec::new();
+        let mut module_doc = None;
+        let mut last_block_comment: Option<TreeNodeMetadata> = None;
         let mut reached_end = !tree_cursor.goto_first_child();
         while !reached_end {
-            let node = tree_cursor.node();
-            match node.kind() {
-                "comment" => {
-                    assert!(last_block_comment.is_none());
-                    last_block_comment =
-                        Self::consume_block_comment(&mut tree_cursor, code.as_bytes());
-                }
-                "function_definition" => {
-                    let doc = last_block_comment
-                        .take()
-                        .map(|(comment_text, _)| comment_text);
-                    match Self::new_function_from_node(&node, doc, code.as_bytes()) {
-                        Ok(function) => {
-                            nodes.push(function);
+            let mut node_metadata: TreeNodeMetadata = (tree_cursor.node(), code.as_bytes()).into();
+            let cur_pos = tree_cursor.node().start_position();
+            let mut next_pos = Point {
+                row: cur_pos.row + 1,
+                ..cur_pos
+            };
+            if node_metadata.kind() == "comment" {
+                // Consume more lines of comment.
+                loop {
+                    match tree_cursor.node().next_sibling() {
+                        Some(s) if s.kind() == "comment" && s.start_position() == next_pos => {
+                            // Another comment at same indentation on the following line.
+                            // Consume and absorb into node_metadata.
+                            next_pos = Point {
+                                row: next_pos.row + 1,
+                                ..next_pos
+                            };
+                            tree_cursor.goto_next_sibling();
+                            node_metadata.treenodes.push(tree_cursor.node());
                         }
-                        Err(err) => eprintln!("{err}"),
+                        _ => {
+                            break;
+                        }
                     }
-                }
-                "call_statement" => {
-                    let doc = last_block_comment
-                        .take()
-                        .map(|(comment_text, _)| comment_text);
-                    if let Some(call_node) =
-                        Self::new_node_from_call_node(&node, doc, code.as_bytes())
-                    {
-                        nodes.push(call_node);
-                    }
-                }
-                "let_statement" | "if_statement" => {}
-                _ => {
-                    // Silently ignore other node kinds.
                 }
             }
+            node_metadata.maybe_consume_doc(&mut last_block_comment);
             reached_end = !tree_cursor.goto_next_sibling();
-            if let Some((finished_comment_text, _)) = last_block_comment.take_if(|(_, next_pos)| {
-                reached_end
-                    || tree_cursor.node().kind() == "comment"
-                    || *next_pos != tree_cursor.node().start_position()
-            }) {
-                // Block comment wasn't immediately above the next node.
-                // Treat it as bare standalone doc comment.
-                if doc.is_none() && nodes.is_empty() {
-                    // This standalone doc comment is the first one in the module.
-                    // Treat it as overall module doc.
-                    doc = Some(finished_comment_text);
-                } else {
-                    nodes.push(VimNode::StandaloneDocComment(finished_comment_text));
+
+            // Consume any dangling comments that can no longer attach to any node after.
+            let mut nodes_to_consume = vec![];
+            if let Some(last) = last_block_comment.take() {
+                nodes_to_consume.push(last);
+            }
+            if node_metadata.kind() != "comment"
+                || tree_cursor.node().start_position() != next_pos
+                || reached_end
+            {
+                nodes_to_consume.push(node_metadata);
+            } else {
+                last_block_comment = Some(node_metadata);
+            }
+            let mut comment_can_be_module_doc = module_doc.is_none() && module_nodes.is_empty();
+            for node_metadata in nodes_to_consume {
+                for node in <TreeNodeMetadata<'_> as Into<Vec<_>>>::into(node_metadata) {
+                    match node {
+                        VimNode::StandaloneDocComment(doc_content) if comment_can_be_module_doc => {
+                            // This standalone doc comment is the first one in the module.
+                            // Treat it as overall module doc.
+                            module_doc = Some(doc_content);
+                            comment_can_be_module_doc = false;
+                        }
+                        node => {
+                            module_nodes.push(node);
+                        }
+                    }
                 }
             }
         }
         Ok(VimModule {
             path: None,
-            doc,
-            nodes,
+            doc: module_doc,
+            nodes: module_nodes,
         })
-    }
-
-    fn new_function_from_node(
-        node: &Node,
-        doc: Option<String>,
-        source: &[u8],
-    ) -> Result<VimNode, String> {
-        assert_eq!(node.kind(), "function_definition");
-        let mut cursor = node.walk();
-
-        let mut decl = None;
-        let mut modifiers = vec![];
-        for child in node.children(&mut cursor) {
-            match child.kind() {
-                "function" | "endfunction" => {}
-                "function_declaration" => {
-                    decl = Some(child);
-                }
-                "body" => {
-                    break;
-                }
-                // Everything else between function_declaration and body is a modifier.
-                _ => {
-                    modifiers.push(Self::get_node_text(&child, source).to_string());
-                }
-            }
-        }
-        let ident = decl.and_then(|decl| {
-            decl.children(&mut cursor)
-                .find(|c| c.kind() == "identifier" || c.kind() == "scoped_identifier")
-        });
-        let ident = match ident {
-            Some(ident) => ident,
-            None => {
-                return Err(format!(
-                    "Failed to find function name for function_definition at {:?}",
-                    node.start_position()
-                ));
-            }
-        };
-
-        let params = decl.and_then(|decl| {
-            decl.children(&mut cursor)
-                .find(|c| c.kind() == "parameters")
-        });
-
-        Ok(VimNode::Function {
-            name: Self::get_node_text(&ident, source).to_string(),
-            args: params
-                .map(|params| {
-                    params
-                        .children(&mut cursor)
-                        .filter(|c| c.kind() == "identifier" || c.kind() == "spread")
-                        .map(|c| Self::get_node_text(&c, source).to_string())
-                        .collect()
-                })
-                .unwrap_or_default(),
-            modifiers,
-            doc,
-        })
-    }
-
-    fn new_node_from_call_node(node: &Node, doc: Option<String>, source: &[u8]) -> Option<VimNode> {
-        assert_eq!(node.kind(), "call_statement");
-        let mut cursor = node.walk();
-        let call_exp = node
-            .children(&mut cursor)
-            .find(|c| c.kind() == "call_expression");
-        if let Some(call_exp) = call_exp {
-            if let Some(function) = call_exp.child_by_field_name("function") {
-                let last_func_id = tree_sitter_traversal::traverse(
-                    function.walk(),
-                    tree_sitter_traversal::Order::Pre,
-                )
-                .filter(|n| n.kind() == "identifier")
-                .last();
-                if last_func_id
-                    .is_some_and(|func_id| Self::get_node_text(&func_id, source) == "Flag")
-                {
-                    let arg1 = function.next_named_sibling();
-                    let arg2 = arg1.and_then(|a1| a1.next_named_sibling());
-                    match arg1 {
-                        Some(arg1) if arg1.kind() == "string_literal" => {
-                            // Matched call Flag(arg1, arg2, ...).
-                            let flag_name_literal = Self::get_node_text(&arg1, source);
-                            let flag_name = if let Some(flag_name) = flag_name_literal
-                                .strip_prefix("'")
-                                .and_then(|l| l.strip_suffix("'"))
-                            {
-                                flag_name.to_string()
-                            } else {
-                                quoted_string::unquote_unchecked(flag_name_literal).into()
-                            };
-                            let default_value =
-                                arg2.map(|a2| Self::get_node_text(&a2, source).to_string());
-                            return Some(VimNode::Flag {
-                                name: flag_name,
-                                default_value_token: default_value,
-                                doc,
-                            });
-                        }
-                        _ => {}
-                    }
-                }
-            }
-        }
-
-        None
-    }
-
-    fn consume_block_comment(
-        tree_cursor: &mut TreeCursor,
-        source: &[u8],
-    ) -> Option<(String, Point)> {
-        let node = tree_cursor.node();
-        assert_eq!(node.kind(), "comment");
-        let cur_pos = node.start_position();
-        let mut next_pos = Point {
-            row: cur_pos.row + 1,
-            ..cur_pos
-        };
-
-        let mut comment_lines: Vec<String> = Vec::new();
-        let comment_node_text = Self::get_node_text(&node, source);
-        if let Some(leader_text) = comment_node_text.strip_prefix("\"\"") {
-            // Valid leader, start comment block.
-            if !leader_text.trim().is_empty() {
-                // Treat trailing text after leader as first comment line.
-                comment_lines.push(
-                    leader_text
-                        .strip_prefix(" ")
-                        .unwrap_or(leader_text)
-                        .to_owned(),
-                );
-            }
-        } else {
-            // Regular non-doc comment, ignore and let parsing skip.
-            return None;
-        }
-
-        // Consume remaining comment lines at same indentation.
-        while tree_cursor.goto_next_sibling() {
-            let node = tree_cursor.node();
-            if node.kind() != "comment" || node.start_position() != next_pos {
-                // Back up so cursor still points to last consumed node.
-                tree_cursor.goto_previous_sibling();
-                break;
-            }
-            next_pos = Point {
-                row: next_pos.row + 1,
-                ..next_pos
-            };
-            let node_text = Self::get_node_text(&node, source);
-            let comment_body = match &node_text[1..] {
-                t if t.starts_with(" ") => &t[1..],
-                t => t,
-            };
-            comment_lines.push(comment_body.to_owned());
-        }
-        Some((comment_lines.join("\n"), next_pos))
-    }
-
-    fn get_node_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
-        str::from_utf8(&source[node.byte_range()]).unwrap()
     }
 }
 
@@ -310,8 +158,7 @@ impl VimParser {
 mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
-    use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
     use tempfile::tempdir;
 
     #[test]
@@ -371,6 +218,25 @@ mod tests {
                 doc: "Foo\nbar".to_string().into(),
                 nodes: vec![]
             }
+        );
+    }
+
+    #[test]
+    fn parse_module_adjacent_docs() {
+        let code = r#"
+""
+" Doc comment.
+""
+" More doc comment.
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: Some("Doc comment.\n\"\nMore doc comment.".into()),
+                nodes: vec![],
+            },
         );
     }
 
@@ -727,6 +593,23 @@ call s:plugin.Flag('someflag', 'somedefault')
                     default_value_token: None,
                     doc: None
                 }],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_comment_and_call() {
+        let code = r#"
+" Some normal comment.
+call SomeFunc()
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![],
             }
         );
     }
