@@ -498,6 +498,51 @@ endfunction
     }
 
     #[test]
+    fn parse_module_one_command() {
+        let code = r#"command SomeCommand echo "Hi""#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Command {
+                    name: "SomeCommand".into(),
+                    modifiers: vec![],
+                    doc: None
+                }],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_module_command_with_doc_and_modifiers() {
+        let code = r#"
+""
+" Do a complex thing.
+command -range -bang -nargs=+ -bar SomeComplexCommand call SomeHelper() | echo 'Hi'
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Command {
+                    name: "SomeComplexCommand".into(),
+                    modifiers: vec![
+                        "-range".into(),
+                        "-bang".into(),
+                        "-nargs=+".into(),
+                        "-bar".into()
+                    ],
+                    doc: Some("Do a complex thing.".into()),
+                }],
+            }
+        );
+    }
+
+    #[test]
     fn parse_module_one_flag() {
         let code = "call Flag('someflag', 'somedefault')";
         let mut parser = VimParser::new().unwrap();

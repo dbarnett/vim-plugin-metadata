@@ -20,6 +20,12 @@ class VimNode:
         doc: Optional[str]
 
     @dataclass
+    class Command:
+        name: str
+        modifiers: List[str]
+        doc: Optional[str]
+
+    @dataclass
     class Flag:
         name: str
         default_value_token: Optional[str]

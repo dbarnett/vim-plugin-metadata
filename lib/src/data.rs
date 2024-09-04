@@ -11,6 +11,11 @@ pub enum VimNode {
         modifiers: Vec<String>,
         doc: Option<String>,
     },
+    Command {
+        name: String,
+        modifiers: Vec<String>,
+        doc: Option<String>,
+    },
     /// A defined "Flag" like the mechanism used in google/vim-maktaba.
     Flag {
         name: String,
