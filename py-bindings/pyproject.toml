@@ -18,8 +18,8 @@ classifiers = [
 dynamic = ["version"]
 
 [project.urls]
-Repository = "https://github.com/dbarnett/rust-vim-plugin-metadata"
-Issues = "https://github.com/dbarnett/rust-vim-plugin-metadata/issues"
+Repository = "https://github.com/dbarnett/vim-plugin-metadata"
+Issues = "https://github.com/dbarnett/vim-plugin-metadata/issues"
 
 [tool.maturin]
 features = ["pyo3/extension-module"]
