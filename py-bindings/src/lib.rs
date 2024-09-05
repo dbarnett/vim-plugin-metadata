@@ -26,6 +26,11 @@ mod py_vim_plugin_metadata {
             modifiers: Vec<String>,
             doc: Option<String>,
         },
+        Variable {
+            name: String,
+            init_value_token: String,
+            doc: Option<String>,
+        },
         /// A defined "Flag" like the mechanism used in google/vim-maktaba.
         Flag {
             name: String,
@@ -54,7 +59,7 @@ mod py_vim_plugin_metadata {
                     }
                     format!("Function({args_str})")
                 }
-                VimNode::Command {
+                Self::Command {
                     name,
                     modifiers,
                     doc,
@@ -64,6 +69,18 @@ mod py_vim_plugin_metadata {
                         args_str.push_str(format!(", doc={doc:?}").as_str());
                     }
                     format!("Command({args_str})")
+                }
+                Self::Variable {
+                    name,
+                    init_value_token,
+                    doc,
+                } => {
+                    let mut args_str =
+                        format!("name={name:?}, init_value_token={init_value_token:?}");
+                    if let Some(doc) = doc {
+                        args_str.push_str(format!(", doc={doc:?}").as_str());
+                    }
+                    format!("Flag({args_str})")
                 }
                 Self::Flag {
                     name,
@@ -118,6 +135,15 @@ mod py_vim_plugin_metadata {
                 } => Self::Flag {
                     name,
                     default_value_token,
+                    doc,
+                },
+                vim_plugin_metadata::VimNode::Variable {
+                    name,
+                    init_value_token,
+                    doc,
+                } => Self::Variable {
+                    name,
+                    init_value_token,
                     doc,
                 },
             }

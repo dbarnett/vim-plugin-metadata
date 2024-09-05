@@ -382,6 +382,25 @@ endfunc
     }
 
     #[test]
+    fn parse_module_comment_then_doc() {
+        let code = r#"
+" Normal comment
+
+""
+" Module doc
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: Some("Module doc".into()),
+                nodes: vec![]
+            }
+        );
+    }
+
+    #[test]
     fn parse_module_different_doc_indentations() {
         let code = r#"
 "" One doc
@@ -543,6 +562,53 @@ command -range -bang -nargs=+ -bar SomeComplexCommand call SomeHelper() | echo '
     }
 
     #[test]
+    fn parse_module_one_variable() {
+        let code = "let somevar = 1";
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![VimNode::Variable {
+                    name: "somevar".into(),
+                    init_value_token: "1".into(),
+                    doc: None,
+                }],
+            },
+        );
+    }
+
+    #[test]
+    fn parse_module_variables_with_doc() {
+        let code = r#"
+""
+" Doc for first variable.
+let g:somevar = 'xyz' | let s:othervar = system("ls")
+"#;
+        let mut parser = VimParser::new().unwrap();
+        assert_eq!(
+            parser.parse_module_str(code).unwrap(),
+            VimModule {
+                path: None,
+                doc: None,
+                nodes: vec![
+                    VimNode::Variable {
+                        name: "g:somevar".into(),
+                        init_value_token: "'xyz'".into(),
+                        doc: Some("Doc for first variable.".into()),
+                    },
+                    VimNode::Variable {
+                        name: "s:othervar".into(),
+                        init_value_token: "system(\"ls\")".into(),
+                        doc: None,
+                    },
+                ],
+            },
+        );
+    }
+
+    #[test]
     fn parse_module_one_flag() {
         let code = "call Flag('someflag', 'somedefault')";
         let mut parser = VimParser::new().unwrap();
@@ -615,11 +681,23 @@ call s:plugin.Flag('someflag', 'somedefault')
             VimModule {
                 path: None,
                 doc: None,
-                nodes: vec![VimNode::Flag {
-                    name: "someflag".into(),
-                    default_value_token: Some("'somedefault'".into()),
-                    doc: None
-                }],
+                nodes: vec![
+                    VimNode::Variable {
+                        name: "s:plugin".into(),
+                        init_value_token: "plugin#Enter(expand('<sfile>:p'))[0]".into(),
+                        doc: None,
+                    },
+                    VimNode::Variable {
+                        name: "s:enter".into(),
+                        init_value_token: "plugin#Enter(expand('<sfile>:p'))[1]".into(),
+                        doc: None,
+                    },
+                    VimNode::Flag {
+                        name: "someflag".into(),
+                        default_value_token: Some("'somedefault'".into()),
+                        doc: None
+                    },
+                ],
             }
         );
     }

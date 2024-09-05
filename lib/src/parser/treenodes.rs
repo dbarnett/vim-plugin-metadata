@@ -181,7 +181,7 @@ impl<'a> TreeNodeMetadata<'a> {
     pub(crate) fn maybe_consume_doc(&mut self, doc: &mut Option<TreeNodeMetadata>) {
         if !matches!(
             self.kind(),
-            "function_definition" | "command_statement" | "call_statement"
+            "function_definition" | "command_statement" | "call_statement" | "let_statement"
         ) {
             return;
         }
@@ -260,6 +260,54 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
                 }
                 nodes
             }
+            "let_statement" => metadata.try_get_treenode().map_or_else(
+                |err| {
+                    eprintln!("{err}");
+                    vec![]
+                },
+                |treenode| {
+                    let mut nodes = vec![];
+                    // Extract identifier and its next named sibling from node like:
+                    // (let_statement (identifier) SOME_RHS)
+                    let mut cursor = treenode.walk();
+                    match treenode.children(&mut cursor).collect::<Vec<_>>()[..] {
+                        [cmd, _, op, _, ..] if cmd.kind() != "let" || op.kind() != "=" => {
+                            // Ignore types of let_statement besides standard assignment.
+                            // For example, let+= isn't defining a new variable.
+                        }
+                        [_, lhs, _, rhs, ..] if lhs.kind() == "list_assignment" => {
+                            // Destructuring assignment.
+                            let rhs_is_literal = rhs.kind() == "list"
+                                && lhs.named_child_count() == rhs.named_child_count();
+                            for (i, lhs) in lhs.named_children(&mut cursor).enumerate() {
+                                let rhs_str = if rhs_is_literal {
+                                    get_treenode_text(&rhs.named_child(i).unwrap(), metadata.source)
+                                        .to_string()
+                                } else {
+                                    format!("{}[{}]", get_treenode_text(&rhs, metadata.source), i)
+                                };
+                                nodes.push(VimNode::Variable {
+                                    name: get_treenode_text(&lhs, metadata.source).to_string(),
+                                    init_value_token: rhs_str,
+                                    doc: metadata.doc.clone(),
+                                });
+                            }
+                        }
+                        [_, lhs, _, rhs, ..] => {
+                            // Standard assignment.
+                            nodes.push(VimNode::Variable {
+                                name: get_treenode_text(&lhs, metadata.source).to_string(),
+                                init_value_token: get_treenode_text(&rhs, metadata.source)
+                                    .to_string(),
+                                doc: metadata.doc.clone(),
+                            });
+                        }
+                        _ => {}
+                    }
+
+                    nodes
+                },
+            ),
             "call_statement" => match metadata.get_flag_node() {
                 Ok(Some(flag_node)) => vec![flag_node],
                 Ok(None) => vec![],
@@ -336,6 +384,98 @@ mod tests {
                 // Command skipped (printed to stderr instead).
             ]
         );
+    }
+
+    #[test]
+    fn metadata_into_nodes_let_missing_rhs() {
+        let code = r"let somevar";
+        let tree = tree_from_code(code);
+        let nodes: Vec<_> = node_metadata_from_code(&tree, code).into();
+        assert_eq!(
+            nodes,
+            vec![
+                // let_statement skipped (not an assignment).
+            ]
+        );
+    }
+
+    #[test]
+    fn metadata_into_nodes_let_compound_assignment() {
+        let code = r"let somevar += 1";
+        let tree = tree_from_code(code);
+        let nodes: Vec<_> = node_metadata_from_code(&tree, code).into();
+        assert_eq!(
+            nodes,
+            vec![
+                // let_statement skipped (compound assignment vs initial declaration).
+            ]
+        );
+    }
+
+    #[test]
+    fn metadata_into_nodes_let_destructuring_assignment() {
+        let code = r"let [var1, var2] = [1, 2]";
+        let tree = tree_from_code(code);
+        let mut metadata = node_metadata_from_code(&tree, code);
+        set_doc(
+            &mut metadata,
+            r#"
+""
+" Some doc
+"#,
+        );
+        let nodes: Vec<_> = metadata.into();
+        assert_eq!(
+            nodes,
+            vec![
+                VimNode::Variable {
+                    name: "var1".to_string(),
+                    init_value_token: "1".to_string(),
+                    doc: Some("Some doc".into()),
+                },
+                VimNode::Variable {
+                    name: "var2".to_string(),
+                    init_value_token: "2".to_string(),
+                    // Note: same doc attaches to all items.
+                    doc: Some("Some doc".into()),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn metadata_into_nodes_let_destructuring_rhs_nonliteral() {
+        let code = r"let [var1, var2] = SomeFunc()";
+        let tree = tree_from_code(code);
+        let nodes: Vec<_> = node_metadata_from_code(&tree, code).into();
+        assert_eq!(
+            nodes,
+            vec![
+                VimNode::Variable {
+                    name: "var1".to_string(),
+                    init_value_token: "SomeFunc()[0]".to_string(),
+                    doc: None,
+                },
+                VimNode::Variable {
+                    name: "var2".to_string(),
+                    init_value_token: "SomeFunc()[1]".to_string(),
+                    doc: None,
+                },
+            ]
+        );
+    }
+
+    fn set_doc(metadata: &mut TreeNodeMetadata, doc_code: &str) {
+        let doc_tree = tree_from_code(doc_code);
+        let mut cursor = doc_tree.walk();
+        cursor.goto_first_child();
+        let mut doc_metadata: TreeNodeMetadata = (cursor.node(), doc_code.as_bytes()).into();
+        while cursor.goto_next_sibling() {
+            doc_metadata.treenodes.push(cursor.node());
+        }
+        let mut doc_metadata = Some(doc_metadata);
+        metadata.maybe_consume_doc(&mut doc_metadata);
+        assert!(doc_metadata.is_none());
     }
 
     fn tree_from_code(code: &str) -> Tree {
