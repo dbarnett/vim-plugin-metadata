@@ -3,6 +3,9 @@ name = "vim-plugin-metadata"
 version = "0.2.1"
 description = "Parse and analyze your vim plugins, from Rust!"
 readme = "README.md"
+include = [
+    "/CHANGELOG.md",
+]
 exclude = [
     ".gitignore",
 ]
