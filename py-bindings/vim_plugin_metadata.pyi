@@ -26,6 +26,12 @@ class VimNode:
         doc: Optional[str]
 
     @dataclass
+    class Variable:
+        name: str
+        init_value_token: str
+        doc: Optional[str]
+
+    @dataclass
     class Flag:
         name: str
         default_value_token: Optional[str]
