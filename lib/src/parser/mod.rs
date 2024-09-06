@@ -1,4 +1,5 @@
 use crate::data::VimModule;
+use crate::parser::grammar::TreeNode;
 use crate::{Error, VimNode, VimPlugin};
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
@@ -7,6 +8,7 @@ use tree_sitter::{Parser, Point};
 use treenodes::TreeNodeMetadata;
 use walkdir::WalkDir;
 
+mod grammar;
 mod treenodes;
 
 // All paths that can contain .vim files from `:help vimfiles`, plus instant/ used by some plugins.
@@ -38,7 +40,7 @@ pub struct VimParser {
 impl VimParser {
     pub fn new() -> crate::Result<Self> {
         let mut parser = Parser::new();
-        parser.set_language(&tree_sitter_vim::language())?;
+        parser.set_language(grammar::vim_language())?;
         Ok(Self { parser })
     }
 
@@ -105,7 +107,8 @@ impl VimParser {
         let mut last_block_comment: Option<TreeNodeMetadata> = None;
         let mut reached_end = !tree_cursor.goto_first_child();
         while !reached_end {
-            let mut node_metadata: TreeNodeMetadata = (tree_cursor.node(), code.as_bytes()).into();
+            let mut node_metadata: TreeNodeMetadata =
+                TreeNode::from((tree_cursor.node(), code.as_bytes())).into();
             let cur_pos = tree_cursor.node().start_position();
             let mut next_pos = Point {
                 row: cur_pos.row + 1,
@@ -123,7 +126,9 @@ impl VimParser {
                                 ..next_pos
                             };
                             tree_cursor.goto_next_sibling();
-                            node_metadata.treenodes.push(tree_cursor.node());
+                            node_metadata
+                                .treenodes
+                                .push(TreeNode::from((tree_cursor.node(), code.as_bytes())));
                         }
                         _ => {
                             break;

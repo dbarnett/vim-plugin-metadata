@@ -1,12 +1,11 @@
+use crate::parser::grammar::TreeNode;
 use crate::VimNode;
 use std::fmt::Formatter;
 use std::{fmt, str};
-use tree_sitter::Node;
 use unicode_ellipsis::truncate_str;
 
 pub struct TreeNodeMetadata<'a> {
-    pub treenodes: Vec<Node<'a>>,
-    pub source: &'a [u8],
+    pub treenodes: Vec<TreeNode<'a, 'a>>,
     pub doc: Option<String>,
 }
 
@@ -15,41 +14,33 @@ impl fmt::Debug for TreeNodeMetadata<'_> {
         let mut nodes_formatted = vec![];
         for node in self.treenodes.iter() {
             nodes_formatted.push(format!(
-                "Node {{ kind: {:?}, range: {:?} }}",
-                node.kind(),
-                node.range()
+                "Node {{ kind: {:?}, range: {:?}, text: {:?} }}",
+                node.treenode.kind(),
+                node.treenode.range(),
+                truncate_str(node.get_text(), 500),
             ));
         }
         f.debug_struct("TreeNodeMetadata")
             .field("treenodes", &nodes_formatted.join(", "))
             .field("doc", &self.doc)
-            .field(
-                "source",
-                &truncate_str(str::from_utf8(self.source).unwrap(), 1000).as_ref(),
-            )
             .finish()
     }
 }
 
-pub fn get_treenode_text<'a>(node: &Node, source: &'a [u8]) -> &'a str {
-    str::from_utf8(&source[node.byte_range()]).unwrap()
-}
-
 impl<'a> TreeNodeMetadata<'a> {
-    fn try_get_treenode(&self) -> Result<Node<'a>, String> {
-        if self.treenodes.len() != 1 {
-            Err(format!(
+    fn try_get_treenode(&self) -> Result<&TreeNode<'a, 'a>, String> {
+        match &self.treenodes[..] {
+            [treenode] => Ok(treenode),
+            _ => Err(format!(
                 "Attempted to process single tree node but found multiple: {self:?}"
-            ))
-        } else {
-            Ok(self.treenodes[0])
+            )),
         }
     }
 
     pub(crate) fn kind(&self) -> &'a str {
-        let kind = self.treenodes[0].kind();
+        let kind = self.treenodes[0].treenode.kind();
         for treenode in &self.treenodes {
-            if treenode.kind() != kind {
+            if treenode.treenode.kind() != kind {
                 panic!("Found different kinds for single node: {:?}", self);
             }
         }
@@ -58,11 +49,11 @@ impl<'a> TreeNodeMetadata<'a> {
 
     fn get_func_node(&self) -> Result<VimNode, String> {
         let treenode = self.try_get_treenode()?;
-        let mut cursor = treenode.walk();
-        let mut decl = None;
+        let mut cursor = treenode.treenode.walk();
+        let mut decl: Option<TreeNode> = None;
         let mut modifiers = vec![];
         for child in treenode.children(&mut cursor) {
-            match child.kind() {
+            match child.treenode.kind() {
                 "function" | "endfunction" => {}
                 "function_declaration" => {
                     decl = Some(child);
@@ -72,30 +63,29 @@ impl<'a> TreeNodeMetadata<'a> {
                 }
                 // Everything else between function_declaration and body is a modifier.
                 _ => {
-                    modifiers.push(get_treenode_text(&child, self.source).to_string());
+                    modifiers.push(child.get_text().to_string());
                 }
             }
         }
         let name = decl
+            .clone()
             .and_then(|decl| decl.child_by_field_name("name"))
-            .map(|ident| get_treenode_text(&ident, self.source))
+            .map(|ident| ident.get_text())
             .ok_or_else(|| {
                 format!(
                     "Failed to find function name for {} at {:?}",
-                    treenode.kind(),
-                    treenode.start_position(),
+                    treenode.treenode.kind(),
+                    treenode.treenode.start_position(),
                 )
             })?;
-        let params = decl.and_then(|decl| {
-            decl.children(&mut cursor)
-                .find(|c| c.kind() == "parameters")
-        });
+        let params =
+            decl.and_then(|decl| decl.children(&mut cursor).find(|c| c.is_kind("parameters")));
         let args: Vec<_> = params
             .map(|params| {
                 params
                     .children(&mut cursor)
-                    .filter(|c| c.kind() == "identifier" || c.kind() == "spread")
-                    .map(|c| get_treenode_text(&c, self.source).to_string())
+                    .filter(|c| c.is_kind("identifier") || c.is_kind("spread"))
+                    .map(|c| c.get_text().to_string())
                     .collect()
             })
             .unwrap_or_default();
@@ -111,19 +101,19 @@ impl<'a> TreeNodeMetadata<'a> {
         let treenode = self.try_get_treenode()?;
         let name = treenode
             .child_by_field_name("name")
-            .map(|n| get_treenode_text(&n, self.source))
+            .map(|n| n.get_text())
             .ok_or_else(|| {
                 format!(
                     "Failed to find command name for {} at {:?}",
-                    treenode.kind(),
-                    treenode.start_position(),
+                    treenode.treenode.kind(),
+                    treenode.treenode.start_position(),
                 )
             })?;
-        let mut cursor = treenode.walk();
+        let mut cursor = treenode.treenode.walk();
         let modifiers: Vec<_> = treenode
             .children(&mut cursor)
-            .filter(|c| c.kind() == "command_attribute")
-            .map(|c| get_treenode_text(&c, self.source).to_string())
+            .filter(|c| c.is_kind("command_attribute"))
+            .map(|c| c.get_text().to_string())
             .collect();
         Ok(VimNode::Command {
             name: name.to_string(),
@@ -134,26 +124,23 @@ impl<'a> TreeNodeMetadata<'a> {
 
     fn get_flag_node(&self) -> Result<Option<VimNode>, String> {
         let treenode = self.try_get_treenode()?;
-        let mut cursor = treenode.walk();
+        let mut cursor = treenode.treenode.walk();
         let call_exp = treenode
             .children(&mut cursor)
-            .find(|c| c.kind() == "call_expression");
+            .find(|c| c.is_kind("call_expression"));
         if let Some(func_expr) = call_exp.and_then(|call| call.child_by_field_name("function")) {
-            let last_func_id = tree_sitter_traversal::traverse(
-                func_expr.walk(),
-                tree_sitter_traversal::Order::Pre,
-            )
-            .filter(|n| n.kind() == "identifier")
-            .last();
-            if last_func_id
-                .is_some_and(|func_id| get_treenode_text(&func_id, self.source) == "Flag")
-            {
+            let mut cursor = func_expr.treenode.walk();
+            let last_func_id = func_expr
+                .traverse_descendents(&mut cursor)
+                .filter(|n| n.is_kind("identifier"))
+                .last();
+            if last_func_id.is_some_and(|func_id| func_id.get_text() == "Flag") {
                 let arg1 = func_expr.next_named_sibling();
-                let arg2 = arg1.and_then(|a1| a1.next_named_sibling());
+                let arg2 = arg1.clone().and_then(|a1| a1.next_named_sibling());
                 match arg1 {
-                    Some(arg1) if arg1.kind() == "string_literal" => {
+                    Some(arg1) if arg1.is_kind("string_literal") => {
                         // Matched call Flag(arg1, arg2, ...).
-                        let flag_name_literal = get_treenode_text(&arg1, self.source);
+                        let flag_name_literal = arg1.get_text();
                         let flag_name = if let Some(flag_name) = flag_name_literal
                             .strip_prefix("'")
                             .and_then(|l| l.strip_suffix("'"))
@@ -162,8 +149,7 @@ impl<'a> TreeNodeMetadata<'a> {
                         } else {
                             quoted_string::unquote_unchecked(flag_name_literal).into()
                         };
-                        let default_value =
-                            arg2.map(|a2| get_treenode_text(&a2, self.source).to_string());
+                        let default_value = arg2.map(|a2| a2.get_text().to_string());
                         return Ok(Some(VimNode::Flag {
                             name: flag_name,
                             default_value_token: default_value,
@@ -195,12 +181,10 @@ impl<'a> TreeNodeMetadata<'a> {
     }
 }
 
-impl<'a> From<(Node<'a>, &'a [u8])> for TreeNodeMetadata<'a> {
-    fn from(value: (Node<'a>, &'a [u8])) -> Self {
-        let (treenode, source) = value;
+impl<'a> From<TreeNode<'a, 'a>> for TreeNodeMetadata<'a> {
+    fn from(treenode: TreeNode<'a, 'a>) -> Self {
         Self {
             treenodes: vec![treenode],
-            source,
             doc: None,
         }
     }
@@ -211,10 +195,8 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
         match metadata.kind() {
             "comment" => {
                 let mut doc_lines = vec![];
-                let first_range = metadata.treenodes[0].range();
-                let first_line =
-                    str::from_utf8(&metadata.source[first_range.start_byte..first_range.end_byte])
-                        .unwrap();
+                let first_node = &metadata.treenodes[0];
+                let first_line = first_node.get_text();
                 if let Some(leader_content) = first_line.strip_prefix("\"\"") {
                     // Valid leader, start comment block.
                     if !leader_content.trim().is_empty() {
@@ -226,9 +208,7 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
                     return vec![];
                 }
                 for treenode in &metadata.treenodes[1..] {
-                    let range = treenode.range();
-                    let comment_text =
-                        str::from_utf8(&metadata.source[range.start_byte..range.end_byte]).unwrap();
+                    let comment_text = treenode.get_text();
                     let comment_content = comment_text.strip_prefix("\"").unwrap();
                     doc_lines.push(comment_content.strip_prefix(" ").unwrap_or(comment_content));
                 }
@@ -269,25 +249,27 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
                     let mut nodes = vec![];
                     // Extract identifier and its next named sibling from node like:
                     // (let_statement (identifier) SOME_RHS)
-                    let mut cursor = treenode.walk();
-                    match treenode.children(&mut cursor).collect::<Vec<_>>()[..] {
-                        [cmd, _, op, _, ..] if cmd.kind() != "let" || op.kind() != "=" => {
+                    let mut cursor = treenode.treenode.walk();
+                    let children = treenode.children(&mut cursor).collect::<Vec<_>>();
+                    match &children[..] {
+                        [cmd, _, op, _, ..] if !cmd.is_kind("let") || !op.is_kind("=") => {
                             // Ignore types of let_statement besides standard assignment.
                             // For example, let+= isn't defining a new variable.
                         }
-                        [_, lhs, _, rhs, ..] if lhs.kind() == "list_assignment" => {
+                        [_, lhs, _, rhs, ..] if lhs.is_kind("list_assignment") => {
                             // Destructuring assignment.
-                            let rhs_is_literal = rhs.kind() == "list"
-                                && lhs.named_child_count() == rhs.named_child_count();
+                            let rhs_is_literal = rhs.is_kind("list")
+                                && lhs.treenode.named_child_count()
+                                    == rhs.treenode.named_child_count();
                             for (i, lhs) in lhs.named_children(&mut cursor).enumerate() {
                                 let rhs_str = if rhs_is_literal {
-                                    get_treenode_text(&rhs.named_child(i).unwrap(), metadata.source)
-                                        .to_string()
+                                    let rhs_item = rhs.named_child(i).unwrap();
+                                    rhs_item.get_text().to_string()
                                 } else {
-                                    format!("{}[{}]", get_treenode_text(&rhs, metadata.source), i)
+                                    format!("{}[{}]", rhs.get_text(), i)
                                 };
                                 nodes.push(VimNode::Variable {
-                                    name: get_treenode_text(&lhs, metadata.source).to_string(),
+                                    name: lhs.get_text().to_string(),
                                     init_value_token: rhs_str,
                                     doc: metadata.doc.clone(),
                                 });
@@ -296,9 +278,8 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
                         [_, lhs, _, rhs, ..] => {
                             // Standard assignment.
                             nodes.push(VimNode::Variable {
-                                name: get_treenode_text(&lhs, metadata.source).to_string(),
-                                init_value_token: get_treenode_text(&rhs, metadata.source)
-                                    .to_string(),
+                                name: lhs.get_text().to_string(),
+                                init_value_token: rhs.get_text().to_string(),
                                 doc: metadata.doc.clone(),
                             });
                         }
@@ -317,12 +298,13 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
                 }
             },
             "ERROR" => {
-                let start_pos = metadata.treenodes[0].start_position();
+                let first_err_node = &metadata.treenodes[0];
+                let start_pos = first_err_node.treenode.start_position();
                 eprintln!(
                     "Syntax error at ({}, {}) near {:?}",
                     start_pos.row,
                     start_pos.column,
-                    get_treenode_text(&metadata.treenodes[0], metadata.source)
+                    first_err_node.get_text(),
                 );
                 vec![]
             }
@@ -336,13 +318,6 @@ mod tests {
     use super::*;
     use pretty_assertions::assert_eq;
     use tree_sitter::{Parser, Tree};
-
-    #[test]
-    fn get_treenode_text_empty() {
-        let code = "";
-        let tree = tree_from_code(code);
-        assert_eq!(get_treenode_text(&tree.root_node(), &[]), "");
-    }
 
     #[test]
     fn metadata_into_nodes_empty_func() {
@@ -469,9 +444,12 @@ mod tests {
         let doc_tree = tree_from_code(doc_code);
         let mut cursor = doc_tree.walk();
         cursor.goto_first_child();
-        let mut doc_metadata: TreeNodeMetadata = (cursor.node(), doc_code.as_bytes()).into();
+        let doc_treenode: TreeNode = (cursor.node(), doc_code.as_bytes()).into();
+        let mut doc_metadata: TreeNodeMetadata = doc_treenode.into();
         while cursor.goto_next_sibling() {
-            doc_metadata.treenodes.push(cursor.node());
+            doc_metadata
+                .treenodes
+                .push(TreeNode::from((cursor.node(), doc_code.as_bytes())));
         }
         let mut doc_metadata = Some(doc_metadata);
         metadata.maybe_consume_doc(&mut doc_metadata);
@@ -487,6 +465,6 @@ mod tests {
     fn node_metadata_from_code<'a>(tree: &'a Tree, code: &'a str) -> TreeNodeMetadata<'a> {
         let mut cursor = tree.walk();
         cursor.goto_first_child();
-        (cursor.node(), code.as_bytes()).into()
+        TreeNode::from((cursor.node(), code.as_bytes())).into()
     }
 }
