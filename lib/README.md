@@ -2,8 +2,8 @@
 
 Parse and analyze your vim plugins, from Rust!
 
-WARNING: This library is early alpha, still missing tons of functionality, and probably has serious
-bugs. Use at your own risk.
+WARNING: This library is in early development, still missing functionality, and probably has plenty
+of bugs. Use at your own risk.
 
 ## Usage
 

@@ -1,11 +1,8 @@
 [package]
 name = "vim-plugin-metadata"
-version = "0.2.1"
+version = "1.0.0-rc.0"
 description = "Parse and analyze your vim plugins, from Rust!"
 readme = "README.md"
-include = [
-    "/CHANGELOG.md",
-]
 exclude = [
     ".gitignore",
 ]
