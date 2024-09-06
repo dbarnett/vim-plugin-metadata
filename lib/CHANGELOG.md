@@ -2,10 +2,10 @@
 
 Changelog for https://crates.io/crates/vim-plugin-metadata.
 
-## [Unreleased]
+## [1.0.x]
 Major changes to parse_plugin_dir/parse_module_* signature and functionality
 
-See https://github.com/dbarnett/vim-plugin-metadata/compare/v0.2.1...main.
+### [1.0.0-rc.0] - 2024-09-09
 
 Added:
 - Parse more `VimNode` types: `Command` and `Flag`
