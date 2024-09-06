@@ -7,8 +7,8 @@ resolver = "2"
 
 [workspace.package]
 authors = ["David Barnett"]
-edition = "2018"
-rust-version = "1.80.0"
+edition = "2021"
+rust-version = "1.74.1"
 repository = "https://github.com/dbarnett/vim-plugin-metadata"
 license = "MIT"
 keywords = ["vim", "parsing", "tree-sitter"]
