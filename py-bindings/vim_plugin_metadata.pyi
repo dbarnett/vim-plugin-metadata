@@ -1,3 +1,4 @@
+from abc import ABC
 from dataclasses import dataclass
 from typing import List, Optional
 
@@ -7,32 +8,28 @@ class VimParser:
     def parse_module_file(self, path: str) -> VimModule: ...
     def parse_module_str(self, code: str) -> VimModule: ...
 
-class VimNode:
+class VimNode(ABC):
     @dataclass
-    class StandaloneDocComment:
+    class StandaloneDocComment(VimNode):
         text: str
-
     @dataclass
-    class Function:
+    class Function(VimNode):
         name: str
         args: List[str]
         modifiers: List[str]
         doc: Optional[str]
-
     @dataclass
-    class Command:
+    class Command(VimNode):
         name: str
         modifiers: List[str]
         doc: Optional[str]
-
     @dataclass
-    class Variable:
+    class Variable(VimNode):
         name: str
         init_value_token: str
         doc: Optional[str]
-
     @dataclass
-    class Flag:
+    class Flag(VimNode):
         name: str
         default_value_token: Optional[str]
         doc: Optional[str]
