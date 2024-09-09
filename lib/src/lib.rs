@@ -1,3 +1,10 @@
+//! # vim-plugin-metadata
+//!
+//! A library to parse and analyze your vim plugins.
+//!
+//! The main use case is to instantiate a [VimParser], configure it, and point
+//! it to a plugin dir or file to parse.
+
 mod data;
 mod parser;
 

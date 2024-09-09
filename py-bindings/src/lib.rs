@@ -1,5 +1,9 @@
 use pyo3::prelude::*;
 
+/// A library to parse and analyze your vim plugins.
+///
+/// The main use case is to instantiate a VimParser, configure it, and point
+/// it to a plugin dir or file to parse.
 #[pymodule(name = "vim_plugin_metadata")]
 mod py_vim_plugin_metadata {
     use super::*;
@@ -229,6 +233,7 @@ mod py_vim_plugin_metadata {
         }
     }
 
+    /// The main entry point for parsing plugins.
     #[pyclass]
     #[derive(Default)]
     pub struct VimParser {
