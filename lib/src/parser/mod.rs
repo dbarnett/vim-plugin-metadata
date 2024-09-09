@@ -1,7 +1,8 @@
 use crate::data::VimModule;
 use crate::{Error, VimNode, VimPlugin};
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use std::{fs, str};
 use tree_sitter::{Parser, Point};
 use treenodes::TreeNodeMetadata;
@@ -31,7 +32,33 @@ impl VimParser {
     pub fn parse_plugin_dir<P: AsRef<Path> + Copy>(&mut self, path: P) -> crate::Result<VimPlugin> {
         let mut modules_for_sections: HashMap<String, Vec<VimModule>> = HashMap::new();
         let sections_to_include = HashSet::from(DEFAULT_SECTION_ORDER);
-        for entry in WalkDir::new(path) {
+        let path_depth = path.as_ref().iter().count();
+        let walker = WalkDir::new(path)
+            .follow_links(true)
+            .sort_by_key(move |e| {
+                let relative_path = e.path().iter().skip(path_depth).collect::<PathBuf>();
+                let (section_index, mut depth) = order_in_sections(relative_path.as_path());
+                // Add 1 to dir paths to get the depth of *files* at that path.
+                // That way foo/bar.vim comes before foo/bar/ and its contents.
+                if e.file_type().is_dir() {
+                    depth += 1;
+                }
+                (section_index, depth)
+            })
+            .into_iter();
+        for entry in walker.filter_entry(|e| {
+            // Filter to only include paths under known section dirs.
+            if e.path().eq(path.as_ref()) {
+                // Include root dir.
+                return true;
+            }
+            let relative_path = e.path().strip_prefix(path).unwrap();
+            relative_path
+                .iter()
+                .nth(0)
+                .and_then(OsStr::to_str)
+                .is_some_and(|p| sections_to_include.contains(p))
+        }) {
             let entry = entry?;
             if !(entry.file_type().is_file()
                 && entry.file_name().to_string_lossy().ends_with(".vim"))
@@ -44,9 +71,6 @@ impl VimParser {
                 .nth(0)
                 .expect("path should be a strict prefix of path under it")
                 .to_string_lossy();
-            if !sections_to_include.contains(section_name.as_ref()) {
-                continue;
-            }
             let module = self.parse_module_file(entry.path())?;
             // Replace absolute path with one relative to plugin root.
             let module = VimModule {
@@ -153,6 +177,19 @@ impl VimParser {
             nodes: module_nodes,
         })
     }
+}
+
+/// Get sort key for relative path sorting by:
+///   1. the subdir's order in DEFAULT_SECTION_ORDER, and
+///   2. the path's depth
+fn order_in_sections(path: &Path) -> (usize, usize) {
+    let section_index = path
+        .iter()
+        .next()
+        .and_then(OsStr::to_str)
+        .and_then(|p| DEFAULT_SECTION_ORDER.iter().position(|s| *s == p))
+        .unwrap_or(DEFAULT_SECTION_ORDER.len());
+    (section_index, path.iter().count())
 }
 
 #[cfg(test)]

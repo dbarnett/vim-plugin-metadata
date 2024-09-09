@@ -192,9 +192,9 @@ mod py_vim_plugin_metadata {
             args_strs.push(format!(
                 "nodes=[{}]",
                 match &self.nodes[..] {
-                    [a, b, c, ..] =>
+                    [a, b, c, _, ..] =>
                         format!("{}, {}, {}, …", a.__repr__(), b.__repr__(), c.__repr__()),
-                    nodes @ _ => nodes
+                    nodes => nodes
                         .iter()
                         .map(VimNode::__repr__)
                         .collect::<Vec<_>>()
