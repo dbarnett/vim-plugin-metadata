@@ -50,7 +50,7 @@ const VIMSCRIPT_CODE: &str = r#"
 ""
 " Does something cool.
 func MyFunc() abort
-  ...
+  …
 endfunc
 "#;
 

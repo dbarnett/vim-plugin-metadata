@@ -159,29 +159,49 @@ mod py_vim_plugin_metadata {
     #[derive(Clone, Debug, PartialEq)]
     pub struct VimModule {
         pub path: Option<PathBuf>,
+        #[pyo3(get)]
         pub doc: Option<String>,
+        #[pyo3(get)]
         pub nodes: Vec<VimNode>,
     }
 
     #[pymethods]
     impl VimModule {
         #[getter]
-        pub fn get_path(&self) -> Option<PathBuf> {
-            self.path.as_ref().map(PathBuf::from)
-        }
-
-        #[getter]
-        pub fn get_doc(&self) -> Option<String> {
-            self.doc.to_owned()
-        }
-
-        #[getter]
-        pub fn get_nodes(&self) -> Vec<VimNode> {
-            self.nodes.clone()
+        pub fn get_path(&self) -> Result<PyObject, PyErr> {
+            Python::with_gil(|py| match &self.path {
+                None => Ok(py.None()),
+                Some(path) => {
+                    let pathlib = PyModule::import_bound(py, "pathlib")?;
+                    pathlib.getattr("Path")?.call1((path,))?.extract()
+                }
+            })
         }
 
         pub fn __repr__(&self) -> String {
-            format!("VimModule({:?}, ...)", self.path)
+            let mut args_strs = Vec::with_capacity(3);
+            if let Some(path) = &self.path {
+                args_strs.push(format!("path={:?}", path.to_str().unwrap()));
+            }
+            if let Some(doc) = &self.doc {
+                args_strs.push(format!(
+                    "doc={:?}",
+                    unicode_ellipsis::truncate_str(doc, 100)
+                ));
+            }
+            args_strs.push(format!(
+                "nodes=[{}]",
+                match &self.nodes[..] {
+                    [a, b, c, ..] =>
+                        format!("{}, {}, {}, …", a.__repr__(), b.__repr__(), c.__repr__()),
+                    nodes @ _ => nodes
+                        .iter()
+                        .map(VimNode::__repr__)
+                        .collect::<Vec<_>>()
+                        .join(", "),
+                }
+            ));
+            format!("VimModule({})", args_strs.join(", "))
         }
     }
 
@@ -199,16 +219,12 @@ mod py_vim_plugin_metadata {
     #[pyclass]
     #[derive(Clone, Debug, PartialEq)]
     pub struct VimPlugin {
+        #[pyo3(get)]
         pub content: Vec<VimModule>,
     }
 
     #[pymethods]
     impl VimPlugin {
-        #[getter]
-        pub fn get_content(&self) -> Vec<VimModule> {
-            self.content.clone()
-        }
-
         pub fn __repr__(&self) -> String {
             format!(
                 "VimPlugin([{}])",
@@ -250,10 +266,10 @@ mod py_vim_plugin_metadata {
         }
 
         /// Parses all supported metadata from a single plugin at the given path.
-        pub fn parse_plugin_dir(&mut self, path: &str) -> PyResult<VimPlugin> {
+        pub fn parse_plugin_dir(&mut self, path: PathBuf) -> PyResult<VimPlugin> {
             let plugin = self
                 .rust_parser
-                .parse_plugin_dir(path)
+                .parse_plugin_dir(&path)
                 .map_err(|err| match err {
                     vim_plugin_metadata::Error::IOError(io_error) => {
                         PyIOError::new_err(format!("{io_error}"))
@@ -264,10 +280,10 @@ mod py_vim_plugin_metadata {
         }
 
         /// Parses and returns metadata for a single module (a.k.a. file) of vimscript code.
-        pub fn parse_module_file(&mut self, path: &str) -> PyResult<VimModule> {
+        pub fn parse_module_file(&mut self, path: PathBuf) -> PyResult<VimModule> {
             let module = self
                 .rust_parser
-                .parse_module_file(path)
+                .parse_module_file(&path)
                 .map_err(|err| PyException::new_err(format!("{err}")))?;
             Ok(module.into())
         }

@@ -144,6 +144,7 @@ name = "py-vim-plugin-metadata"
 version = "0.2.2"
 dependencies = [
  "pyo3",
+ "unicode-ellipsis",
  "vim-plugin-metadata",
 ]
 
