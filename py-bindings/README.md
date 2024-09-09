@@ -16,7 +16,7 @@ parser = vim_plugin_metadata.VimParser()
 parser.parse_plugin_dir(".vim/plugged/someplugin")
 ```
 ```
-VimPlugin([VimModule("plugin/somefile.vim", ...), VimModule("autoload/someplugin.vim", ...)])
+VimPlugin([VimModule("plugin/somefile.vim", …), VimModule("autoload/someplugin.vim", …)])
 ```
 
 ```python
@@ -27,7 +27,7 @@ parser.parse_module_str("""
 ""
 " Does something cool.
 func MyFunc() abort
-  ...
+  …
 endfunc
 """)
 ```

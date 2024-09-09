@@ -16,8 +16,9 @@ Added:
 - Parse more `VimNode` types: `Command` and `Flag`
 
 Changed:
-- Forked parse_module into parse_module_file and parse_module_str
+- Fork parse_module into `parse_module_file` and `parse_module_str`
 - Change parse_module_* return type `list[VimNode]`->`VimModule`
+- Use pathlib types for returned paths and (optionally) path args
 
 ## [0.2.x] - 2024-09-01
 Adds parse_plugin_dir

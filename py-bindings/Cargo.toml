@@ -22,4 +22,5 @@ doc = false
 
 [dependencies]
 pyo3 = { version = "0.22.0", features = ["abi3-py38"] }
+unicode-ellipsis = "0.2.0"
 vim-plugin-metadata = { workspace = true }
