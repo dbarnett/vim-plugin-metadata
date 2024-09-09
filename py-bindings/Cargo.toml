@@ -18,6 +18,7 @@ exclude = [
 [lib]
 name = "vim_plugin_metadata"
 crate-type = ["cdylib"]
+doc = false
 
 [dependencies]
 pyo3 = { version = "0.22.0", features = ["abi3-py38"] }

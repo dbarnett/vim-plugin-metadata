@@ -14,6 +14,7 @@ const DEFAULT_SECTION_ORDER: [&str; 9] = [
     "plugin", "instant", "autoload", "syntax", "indent", "ftdetect", "ftplugin", "spell", "colors",
 ];
 
+/// The main entry point for parsing plugins.
 #[derive(Default)]
 pub struct VimParser {
     parser: Parser,
