@@ -20,6 +20,9 @@ Changed:
 - Change parse_module_* return type `list[VimNode]`->`VimModule`
 - Use pathlib types for returned paths and (optionally) path args
 
+Fixed:
+- Fix skipping after/ paths and some other subdirs like compiler/
+
 ## [0.2.x] - 2024-09-01
 Adds parse_plugin_dir
 
