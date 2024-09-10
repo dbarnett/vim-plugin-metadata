@@ -185,11 +185,13 @@ impl<'a> TreeNodeMetadata<'a> {
         ) {
             return;
         }
-        if let Some(VimNode::StandaloneDocComment(consumed_doc)) = doc.take().and_then(|doc| {
-            let mut doc_nodes: Vec<VimNode> = doc.into();
-            // TODO: Use all nodes or error if multiple.
-            doc_nodes.pop()
-        }) {
+        if let Some(VimNode::StandaloneDocComment { doc: consumed_doc }) =
+            doc.take().and_then(|doc| {
+                let mut doc_nodes: Vec<VimNode> = doc.into();
+                // TODO: Use all nodes or error if multiple.
+                doc_nodes.pop()
+            })
+        {
             self.doc = Some(consumed_doc);
         }
     }
@@ -232,9 +234,9 @@ impl<'a> From<TreeNodeMetadata<'a>> for Vec<VimNode> {
                     let comment_content = comment_text.strip_prefix("\"").unwrap();
                     doc_lines.push(comment_content.strip_prefix(" ").unwrap_or(comment_content));
                 }
-                vec![VimNode::StandaloneDocComment(
-                    doc_lines.join("\n").trim_end().to_string(),
-                )]
+                vec![VimNode::StandaloneDocComment {
+                    doc: doc_lines.join("\n").trim_end().to_string(),
+                }]
             }
             "function_definition" => {
                 let mut nodes = vec![];

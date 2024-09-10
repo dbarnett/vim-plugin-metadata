@@ -4,7 +4,9 @@ use std::path::PathBuf;
 /// such as a comment or function.
 #[derive(Debug, PartialEq)]
 pub enum VimNode {
-    StandaloneDocComment(String),
+    StandaloneDocComment {
+        doc: String,
+    },
     Function {
         name: String,
         args: Vec<String>,
@@ -27,6 +29,18 @@ pub enum VimNode {
         default_value_token: Option<String>,
         doc: Option<String>,
     },
+}
+
+impl VimNode {
+    pub fn get_doc(&self) -> Option<&str> {
+        match self {
+            VimNode::StandaloneDocComment { doc } => Some(doc.as_str()),
+            VimNode::Function { doc, .. }
+            | VimNode::Command { doc, .. }
+            | VimNode::Variable { doc, .. }
+            | VimNode::Flag { doc, .. } => doc.as_deref(),
+        }
+    }
 }
 
 /// An individual module (a.k.a. file) of vimscript code.

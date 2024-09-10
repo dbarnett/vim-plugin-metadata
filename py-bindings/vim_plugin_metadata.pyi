@@ -12,7 +12,7 @@ class VimParser:
 class VimNode(ABC):
     @dataclass
     class StandaloneDocComment(VimNode):
-        text: str
+        doc: str
     @dataclass
     class Function(VimNode):
         name: str

@@ -151,7 +151,9 @@ impl VimParser {
             for node_metadata in nodes_to_consume {
                 for node in <TreeNodeMetadata<'_> as Into<Vec<_>>>::into(node_metadata) {
                     match node {
-                        VimNode::StandaloneDocComment(doc_content) if comment_can_be_module_doc => {
+                        VimNode::StandaloneDocComment { doc: doc_content }
+                            if comment_can_be_module_doc =>
+                        {
                             // This standalone doc comment is the first one in the module.
                             // Treat it as overall module doc.
                             module_doc = Some(doc_content);
@@ -433,7 +435,9 @@ endfunc
             VimModule {
                 path: None,
                 doc: Some("One doc".into()),
-                nodes: vec![VimNode::StandaloneDocComment("Another doc".into()),]
+                nodes: vec![VimNode::StandaloneDocComment {
+                    doc: "Another doc".into()
+                },]
             }
         );
     }
