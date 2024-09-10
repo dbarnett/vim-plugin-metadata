@@ -17,7 +17,7 @@ mod py_vim_plugin_metadata {
     #[derive(Clone, Debug, PartialEq)]
     pub enum VimNode {
         StandaloneDocComment {
-            text: String,
+            doc: String,
         },
         Function {
             name: String,
@@ -47,8 +47,8 @@ mod py_vim_plugin_metadata {
     impl VimNode {
         pub fn __repr__(&self) -> String {
             match &self {
-                Self::StandaloneDocComment { text } => {
-                    format!("StandaloneDocComment({text:?})")
+                Self::StandaloneDocComment { doc } => {
+                    format!("StandaloneDocComment(doc={doc:?})")
                 }
                 Self::Function {
                     name,
@@ -109,8 +109,8 @@ mod py_vim_plugin_metadata {
     impl From<vim_plugin_metadata::VimNode> for VimNode {
         fn from(n: vim_plugin_metadata::VimNode) -> Self {
             match n {
-                vim_plugin_metadata::VimNode::StandaloneDocComment(text) => {
-                    Self::StandaloneDocComment { text }
+                vim_plugin_metadata::VimNode::StandaloneDocComment { doc } => {
+                    Self::StandaloneDocComment { doc }
                 }
                 vim_plugin_metadata::VimNode::Function {
                     name,

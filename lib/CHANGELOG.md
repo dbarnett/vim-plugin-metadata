@@ -13,6 +13,8 @@ Added:
 Changed:
 - Fork parse_module into parse_module_file and parse_module_str
 - Change parse_module_* return type `Vec<VimNode>`->`VimModule`
+- Tweak `VimNode::StandaloneDocComment` to have doc in a `doc` attribute for consistency, and add a
+  general `VimNode::get_doc` getter
 
 Fixed:
 - Fix skipping after/ paths and some other subdirs like compiler/
