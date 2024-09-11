@@ -1,4 +1,5 @@
 use pyo3::prelude::*;
+use std::path::PathBuf;
 
 /// A library to parse and analyze your vim plugins.
 ///
@@ -8,7 +9,6 @@ use pyo3::prelude::*;
 mod py_vim_plugin_metadata {
     use super::*;
     use pyo3::exceptions::{PyException, PyIOError};
-    use std::path::PathBuf;
     use vim_plugin_metadata;
 
     /// A representation of a single high-level grammar token of vim syntax,
@@ -167,15 +167,11 @@ mod py_vim_plugin_metadata {
 
     #[pymethods]
     impl VimModule {
+        /// Note: returned as a PurePath because it's a path relative to the plugin root dir, not
+        /// necessarily a real CWD-relative path.
         #[getter]
-        pub fn get_path(&self) -> Result<PyObject, PyErr> {
-            Python::with_gil(|py| match &self.path {
-                None => Ok(py.None()),
-                Some(path) => {
-                    let pathlib = PyModule::import_bound(py, "pathlib")?;
-                    pathlib.getattr("Path")?.call1((path,))?.extract()
-                }
-            })
+        pub fn get_path(&self) -> PyResult<Option<PyObject>> {
+            self.path.clone().map(as_py_purepath).transpose()
         }
 
         pub fn __repr__(&self) -> String {
@@ -297,4 +293,11 @@ mod py_vim_plugin_metadata {
             Ok(module.into())
         }
     }
+}
+
+fn as_py_purepath(path: PathBuf) -> PyResult<PyObject> {
+    Python::with_gil(|py| {
+        let pathlib = PyModule::import_bound(py, "pathlib")?;
+        Ok(pathlib.getattr("PurePath")?.call1((path,))?.unbind())
+    })
 }
